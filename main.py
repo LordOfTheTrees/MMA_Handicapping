@@ -4,12 +4,15 @@ MMA Pre-Fight Prediction Model — Master Script
 Commands
 --------
 train   Build ELO, construct features, fit regression. Saves model to disk.
+        By default reads CSVs already in --data-dir (no refresh). Use
+        --full-rebuild to run refresh_data() first (implement in src/data/refresh.py).
 predict Produce a calibrated 6-class probability distribution for a matchup.
 explain Show the exact additive decomposition of a prediction's log-odds.
 
 Usage
 -----
-    python main.py train   --data-dir ./data [--model-path model.pkl]
+    python main.py train --data-dir ./data [--model-path model.pkl]
+    python main.py train --data-dir ./data --full-rebuild
     python main.py predict <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
     python main.py explain <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
 
@@ -99,6 +102,12 @@ def cmd_train(args: argparse.Namespace) -> None:
     data_dir = Path(args.data_dir)
     model_path = Path(args.model_path)
 
+    if args.full_rebuild:
+        from src.data.refresh import refresh_data
+
+        print(f"Refreshing data → {data_dir} ...")
+        refresh_data(data_dir)
+
     if not data_dir.exists():
         print(f"Data directory not found: {data_dir}")
         sys.exit(1)
@@ -179,10 +188,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # train
-    p_train = sub.add_parser("train", help="Train the model from CSV data")
+    p_train = sub.add_parser(
+        "train",
+        help="Train from CSVs in --data-dir (default: use existing files; no refresh)",
+    )
     p_train.add_argument(
         "--data-dir", default="./data",
         help="Directory containing data CSVs (default: ./data)",
+    )
+    p_train.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        help="Call refresh_data() first to repopulate CSVs, then train (see src/data/refresh.py)",
     )
 
     # predict
