@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# MMA model data — never commit raw fight/fighter data or trained model artifacts
+data/
+model.pkl
+*.pkl
