@@ -19,7 +19,7 @@ Steps are ordered chronologically. Detail decreases the further out they are.
 
 **Status:** Implemented in [`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py) (`scrape_ufcstats_fights_to_csv`, `parse_fight_page`, …). Discovery uses the completed-events page with `?page=all` (~770 events), then each event page and each `fight-details` URL. HTTP uses `curl_cffi` with Chrome impersonation and a referer chain.
 
-**Runtime:** A full scrape issues thousands of requests; spacing is **`REQUEST_DELAY_SEC`** in that module (CLI `--sleep` in `main()`, default **0.1 s**). Plan for **several hours** wall time depending on network. Fighter profiles (`scrape_fighter_profiles_to_csv` in `ufcstats_profiles.py`) are a separate pass over **unique fighter IDs** from the fights CSV.
+**Runtime:** A full scrape issues thousands of requests; spacing is **`REQUEST_DELAY_SEC`** in that module (CLI `--sleep` in `main()`, default **0.2 s** in current code). Plan for **several hours** wall time depending on network. Fighter profiles (`scrape_fighter_profiles_to_csv` in `ufcstats_profiles.py`) are a separate pass over **unique fighter IDs** from the fights CSV.
 
 **Outcome normalization (UFCStats quirks):**
 - Both fighter banners **D** → `method` = `draw` (method line may still read like a decision).
@@ -156,7 +156,9 @@ python main.py predict <fighter_id_a> <fighter_id_b> lightweight --date 2024-06-
 
 ### 2.2 Symmetry Check
 
-Swap A and B and confirm win probabilities become lose probabilities:
+Swap A and B: mirrored outcome classes should **roughly** align (e.g. A’s win-KO vs B’s lose-KO). **Exact** `1e-6` equality is **not** expected with the current **multiplicative matchup interaction** features (`striking_matchup`, etc.) — see [`validation-and-few-shot.md`](validation-and-few-shot.md).
+
+Use point probabilities only (no bootstrap) and a **relaxed** tolerance, e.g. [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py), or:
 
 ```python
 from src.pipeline import MMAPredictor
@@ -164,15 +166,13 @@ from src.data.schema import WeightClass
 from datetime import date
 
 p = MMAPredictor.load("model.pkl")
-r1 = p.predict("fighter_a", "fighter_b", WeightClass.LIGHTWEIGHT, date(2024, 6, 1), verbose=False)
-r2 = p.predict("fighter_b", "fighter_a", WeightClass.LIGHTWEIGHT, date(2024, 6, 1), verbose=False)
-
-# Should be near-zero
-assert abs(r1.p_win_ko_tko   - r2.p_lose_ko_tko)   < 1e-6
-assert abs(r1.p_win_decision  - r2.p_lose_decision) < 1e-6
+wc, fd = WeightClass.LIGHTWEIGHT, date(2024, 6, 1)
+p1 = p.predict_proba_point_only("fighter_a", "fighter_b", wc, fd)
+p2 = p.predict_proba_point_only("fighter_b", "fighter_a", wc, fd)
+assert abs(p1[0] - p2[4]) < 0.12  # example tolerance; tune after validation strategy is fixed
 ```
 
-- [ ] Add this as a unit test in `tests/test_symmetry.py`.
+- [ ] Add a unit test with the chosen tolerance in `tests/test_symmetry.py`.
 
 ### 2.3 Sanity Checks on ELO
 

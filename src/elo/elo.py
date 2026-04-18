@@ -6,7 +6,7 @@ Architecture responsibilities (Section 4):
   - Zero ELO movement for Draw / NC / DQ
   - Cross-promotion ELO transfer with tier-based discount
   - Cold start from pedigree priors
-  - Time-based uncertainty growth via Kalman predict step
+  - Time-based uncertainty growth via Kalman predict step (elapsed since last fight **any** division)
   - Dual role: quality weight for feature construction AND regression feature
 """
 from collections import defaultdict
@@ -26,8 +26,8 @@ from .kalman import KalmanState, kalman_predict, kalman_update
 # ---------------------------------------------------------------------------
 
 _K_SCALE: Dict[ResultMethod, float] = {
-    ResultMethod.KO_TKO:               1.25,
-    ResultMethod.SUBMISSION:           1.25,
+    ResultMethod.KO_TKO:               1.5,
+    ResultMethod.SUBMISSION:           1.5,
     ResultMethod.UNANIMOUS_DECISION:   1.00,
     ResultMethod.SPLIT_DECISION:       0.50,
     ResultMethod.MAJORITY_DECISION:    0.50,
@@ -46,9 +46,9 @@ def result_k_scale(method: ResultMethod) -> float:
 # Core ELO mathematics
 # ---------------------------------------------------------------------------
 
-def expected_score(elo_a: float, elo_b: float) -> float:
+def expected_score(elo_a: float, elo_b: float, *, divisor: float) -> float:
     """Standard ELO expected score for Fighter A."""
-    return 1.0 / (1.0 + 10.0 ** ((elo_b - elo_a) / 400.0))
+    return 1.0 / (1.0 + 10.0 ** ((elo_b - elo_a) / divisor))
 
 
 def _defaultdict_none() -> None:
@@ -62,6 +62,7 @@ def elo_delta(
     a_won: bool,
     method: ResultMethod,
     k_base: float,
+    logistic_divisor: float,
 ) -> Tuple[float, float]:
     """
     Compute ELO change for both fighters after a decisive fight.
@@ -73,7 +74,7 @@ def elo_delta(
     if scale == 0.0:
         return 0.0, 0.0
 
-    e_a = expected_score(elo_a, elo_b)
+    e_a = expected_score(elo_a, elo_b, divisor=logistic_divisor)
     actual_a = 1.0 if a_won else 0.0
     delta_a = k_base * scale * (actual_a - e_a)
     return delta_a, -delta_a
@@ -99,8 +100,22 @@ class ELOModel:
         # (fighter_id, WeightClass) -> KalmanState
         self._states: Dict[Tuple[str, WeightClass], KalmanState] = {}
         self._last_fight: Dict[Tuple[str, WeightClass], Optional[date]] = defaultdict(_defaultdict_none)
+        # Last cage date anywhere — drives Kalman time-update for the division being fought (ADR-15).
+        self._last_fight_global: Dict[str, Optional[date]] = defaultdict(_defaultdict_none)
         self._n_fights: Dict[Tuple[str, WeightClass], int] = defaultdict(int)
         self._best_tier: Dict[Tuple[str, WeightClass], DataTier] = {}
+
+    def __setstate__(self, state: dict) -> None:
+        """Pickle migration: older models lack ``_last_fight_global``; backfill from per-division dates."""
+        self.__dict__.update(state)
+        if "_last_fight_global" not in self.__dict__:
+            g: Dict[str, Optional[date]] = defaultdict(_defaultdict_none)
+            for (fid, _wc), d0 in list(self._last_fight.items()):
+                if d0 is not None:
+                    cur = g[fid]
+                    if cur is None or d0 > cur:
+                        g[fid] = d0
+            self._last_fight_global = g
 
     # ------------------------------------------------------------------
     # Key helpers
@@ -181,29 +196,44 @@ class ELOModel:
         self,
         fights: List[FightRecord],
         profiles: Optional[Dict[str, FighterProfile]] = None,
+        *,
+        progress_every: int = 0,
     ) -> None:
         """
         Process all fights in chronological order.
 
         fights MUST be sorted by fight_date ascending before calling this.
         Profiles are used only for pedigree-based cold starts.
+
+        If *progress_every* > 0, print a line every N fights (and at start/end).
         """
         if profiles:
+            n_prof = len(profiles)
+            print(f"  [ELO] pedigree cold-start pass: {n_prof:,} profiles x divisions ...", flush=True)
             for fighter_id, profile in profiles.items():
                 for wc in WeightClass:
                     self.initialize_from_pedigree(fighter_id, wc, profile)
 
-        for fight in fights:
+        n = len(fights)
+        if n == 0:
+            return
+        if progress_every > 0:
+            print(f"  [ELO] processing {n:,} fights chronologically ...", flush=True)
+
+        for i, fight in enumerate(fights, start=1):
             self._process_one(fight)
+            if progress_every > 0 and (i == 1 or i % progress_every == 0 or i == n):
+                pct = 100.0 * i / n
+                print(f"  [ELO] {i:,} / {n:,} fights ({pct:.1f}%)", flush=True)
 
     def _process_one(self, fight: FightRecord) -> None:
         wc = fight.weight_class
         a_id, b_id = fight.fighter_a_id, fight.fighter_b_id
 
-        # Kalman predict step: grow uncertainty for both fighters
+        # Kalman predict step: grow uncertainty for both fighters (layoff vs last fight anywhere)
         for fid in (a_id, b_id):
             key = self._key(fid, wc)
-            last = self._last_fight[key]
+            last = self._last_fight_global[fid]
             state = self._get_or_init(fid, wc)
             if last is not None:
                 days = max(0, (fight.fight_date - last).days)
@@ -218,13 +248,19 @@ class ELOModel:
             for fid in (a_id, b_id):
                 key = self._key(fid, wc)
                 self._last_fight[key] = fight.fight_date
+                self._last_fight_global[fid] = fight.fight_date
                 self._n_fights[key] += 1
                 self._update_best_tier(key, fight.tier)
             return
 
         a_won = fight.winner_id == a_id
         d_a, d_b = elo_delta(
-            state_a.value, state_b.value, a_won, fight.result_method, self.config.k_base
+            state_a.value,
+            state_b.value,
+            a_won,
+            fight.result_method,
+            self.config.k_base,
+            self.config.logistic_divisor,
         )
 
         # Kalman measurement update
@@ -236,6 +272,7 @@ class ELOModel:
         self._states[key_b] = new_b
         for key, fid in ((key_a, a_id), (key_b, b_id)):
             self._last_fight[key] = fight.fight_date
+            self._last_fight_global[fid] = fight.fight_date
             self._n_fights[key] += 1
             self._update_best_tier(key, fight.tier)
 
@@ -265,7 +302,7 @@ class ELOModel:
         state = self._get_or_init(fighter_id, wc)
 
         if as_of_date is not None:
-            last = self._last_fight[key]
+            last = self._last_fight_global[fighter_id]
             if last is not None:
                 days = max(0, (as_of_date - last).days)
                 if days > 0:

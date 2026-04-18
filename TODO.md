@@ -20,6 +20,10 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 - Whatever **you last wrote** is the source of truth: a **full refresh in progress**, a **finished** `ufcstats_fights.csv` / `fighter_profiles.csv`, or copies under `Saved_Runs/`. This roadmap does **not** assume a scrape has finished until **you** record it (see §F table).
 
+**ELO + Kalman (modeled, tuned):**
+
+- Per–weight-class ELO with Kalman mean/variance, **global layoff clock** (**ADR-15**). Current defaults and regression wiring are summarized in [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md) (tuned `k_base`, `logistic_divisor`, finish scales, process noise; **next:** use ELO uncertainty in features / expected score / CIs — see that doc).
+
 **Not the focus yet (optional / later):**
 
 - Tier 2–3 promotion CSVs, pedigree manual fill, holdout tuning (Phase 3+), CI—see `docs/todo.md`.
@@ -80,8 +84,10 @@ Optional: `--max-fighters N` for a smoke run, `--sleep` (profiles pass; separate
 ### D. First pipeline smoke test (after A + B)
 
 - Train: `python main.py train --data-dir ./data`
+- Fast checks (finite `X_train`, symmetry, ELO snapshot): `python scripts/phase2_smoke.py`
 - Check loaded fight and profile counts, training set size, no non-finite features.
 - One `predict` and one `explain` on a known matchup using real IDs from your CSVs.
+- Holdout / CV / few-shot notes: [`docs/validation-and-few-shot.md`](docs/validation-and-few-shot.md)
 
 ### E. Quick quality gates (before big tuning)
 
@@ -122,6 +128,7 @@ Other flags: `--no-diagnose` (list missing URLs only), `--out-missing` (default 
 
 | Topic | Where |
 |--------|--------|
+| ELO tuning status, Kalman vs regression, next steps | [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md) |
 | Full phased checklist, schemas, metrics | [`docs/todo.md`](docs/todo.md) |
 | Design and stage definitions | [`docs/architecture.md`](docs/architecture.md) |
 | Expected CSV filenames / loader behavior | [`src/pipeline.py`](src/pipeline.py) (`load_data`; tries `ufcstats_fights.csv` then legacy `tier1_ufcstats.csv`) |

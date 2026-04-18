@@ -118,6 +118,7 @@ class ELOState:
     weight_class: WeightClass
     elo: float
     uncertainty: float              # Kalman variance
+    #: Last bout **in this weight class**. Kalman time-updates use last bout **any** class (see ADR-15).
     last_fight_date: Optional[date] = None
     n_fights: int = 0
     primary_tier: DataTier = DataTier.TIER_3

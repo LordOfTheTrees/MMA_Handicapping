@@ -120,14 +120,14 @@ def cmd_train(args: argparse.Namespace) -> None:
     print(f"  {len(predictor.fights):,} fight records loaded.")
     print(f"  {len(predictor.profiles):,} fighter profiles loaded.")
 
-    print("Stage 2: Building ELO model ...")
+    print("Stage 2: Building ELO on full fight history ...")
     predictor.build_elo()
     print("  ELO construction complete.")
 
-    print("Stages 3–5: Constructing features and training regression ...")
+    print("Stages 3–5: Style features (per row) + multinomial regression ...")
     predictor.train_regression()
     n_train = len(predictor._y_train) if predictor._y_train is not None else 0
-    print(f"  Regression trained on {n_train:,} fights.")
+    print(f"  Training rows used: {n_train:,} decisive post-era fights.")
 
     print(f"Saving model -> {model_path}")
     predictor.save(model_path)

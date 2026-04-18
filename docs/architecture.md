@@ -93,13 +93,15 @@ ELO is constructed **per weight class**. A fighter's ELO in one weight class car
 The ELO K-factor is scaled by result certainty. This reflects that a dominant finish is a stronger signal of relative quality than a disputed split decision, and that quality of wins is already embedded in the update mechanism.
 
 ```
-KO/TKO or Submission win      →  K × 1.25
+KO/TKO win                     →  K × 1.5
+Submission win                 →  K × 1.5
 Unanimous decision win         →  K × 1.0
 Split or Majority decision win →  K × 0.5
 Draw / No Contest / DQ         →  K × 0.0
 Split or Majority decision loss→  -K × 0.5
 Unanimous decision loss        →  -K × 1.0
-KO/TKO or Submission loss      →  -K × 1.25
+KO/TKO loss                    →  -K × 1.5
+Submission loss                →  -K × 1.5
 ```
 
 **Rationale for collapsing Split and Majority:** With three judges in MMA, both a split decision (2-1) and a majority decision (2-0-1) represent exactly one judge dissenting. The signal strength is equivalent regardless of whether that dissent is expressed as a vote for the opponent or a draw score. False precision in distinguishing them is avoided.
@@ -129,7 +131,7 @@ Complete unknown                       → 1500 flat, high uncertainty
 
 Fighter parameters are not stationary — a fighter observed last month is better characterized than one returning from a long layoff. A lightweight Kalman filter maintains uncertainty estimates on each fighter's ELO and style axis scores with the following minimal design:
 
-- **Uncertainty grows** with time elapsed since the fighter's last fight. The longer the layoff, the wider the confidence band on their current true parameter values.
+- **Uncertainty grows** with time elapsed since the fighter's **last professional fight in any weight class**. ELO means and updates remain **per division**, but the time-update before a bout uses a **global** layoff clock: a training camp and a cage appearance at another weight still mean we have a recent observation of the athlete, so uncertainty should not stay artificially tight in one division while they were active elsewhere. (See [`architecture-decisions.md`](architecture-decisions.md) **ADR-15**.)
 - **Uncertainty shrinks** with each new observation. The quality of that observation — already encoded in the K-factor scaling — determines how much the uncertainty contracts.
 
 No further assumptions are made about the mechanics of parameter change. There are no aging curves, no durability decay functions, no career stage priors. The data determines uncertainty through observation frequency and quality alone.
@@ -285,7 +287,9 @@ The trigger for Cauchy fallback is a tunable threshold on effective sample size 
 
 ### 8.4 Kalman Uncertainty Contribution
 
-Time elapsed since last fight grows the uncertainty band on each fighter's Kalman state estimate. This uncertainty propagates into the feature vector and widens prediction CIs automatically without any additional modeling machinery. A fighter returning from a long layoff produces wider intervals than an active fighter, not because of an assumed aging curve, but because the model genuinely has less current information about them.
+Time elapsed since the fighter's **last bout in any weight class** grows the **posterior variance** on that fighter’s ELO Kalman state for the division being queried (§4.5). That variance controls **Kalman gain** on the next fight update (how aggressively the stored **mean** moves toward the classical `value + delta` target) and appears in **`ELOState.uncertainty`** for diagnostics (e.g. chart summaries).
+
+**Regression today:** The multinomial feature vector uses **`elo_differential`** from the Kalman **mean** only ([`build_matchup_features`](src/matchup/interactions.py)). ELO Kalman variance does **not** yet enter features or the bootstrap/Cauchy CIs (those reflect coefficient/data uncertainty on the fitted logit, not ELO epistemics). Closing that gap — features, expected-score under doubt, and/or CI propagation — is tracked in [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md).
 
 ### 8.5 Output Format
 

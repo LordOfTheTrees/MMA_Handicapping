@@ -50,6 +50,8 @@ def bootstrap_ci(
     train_weights: Optional[np.ndarray],
     config: ModelConfig,
     rng: Optional[np.random.Generator] = None,
+    *,
+    progress_every: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Percentile bootstrap confidence intervals for a single prediction vector x.
@@ -95,6 +97,12 @@ def bootstrap_ci(
             all_probs[b] = model_b.predict_proba(x)
         except Exception:
             pass  # leave as NaN — filtered below
+
+        if progress_every > 0 and (b + 1) % progress_every == 0:
+            print(
+                f"  [bootstrap CI] resample {b + 1:,} / {config.n_bootstrap:,}",
+                flush=True,
+            )
 
     valid = all_probs[~np.any(np.isnan(all_probs), axis=1)]
     n_valid = len(valid)
@@ -148,6 +156,8 @@ def compute_prediction_ci(
     train_weights: Optional[np.ndarray],
     effective_n: float,
     config: ModelConfig,
+    *,
+    bootstrap_progress_every: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, str]:
     """
     Route to bootstrap or Cauchy based on effective sample size.
@@ -168,6 +178,7 @@ def compute_prediction_ci(
             y_train=y_train,
             train_weights=train_weights,
             config=config,
+            progress_every=bootstrap_progress_every,
         )
         return lower, upper, "bootstrap"
 

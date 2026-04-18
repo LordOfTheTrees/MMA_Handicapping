@@ -184,6 +184,8 @@ class MultinomialLogisticModel:
         X: np.ndarray,
         y: np.ndarray,
         max_iter: int = 2000,
+        *,
+        verbose: bool = False,
     ) -> "MultinomialLogisticModel":
         """
         Fit coefficients using L-BFGS-B.
@@ -201,6 +203,14 @@ class MultinomialLogisticModel:
             jac=True,
             options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-7},
         )
+
+        if verbose:
+            ok = "ok" if result.success else "check"
+            print(
+                f"  [regression] L-BFGS-B finished ({ok}): "
+                f"n_iter={result.nit}, message={result.message}",
+                flush=True,
+            )
 
         self.W = result.x.reshape(N_CLASSES, self.n_features)
         self.is_fitted = True

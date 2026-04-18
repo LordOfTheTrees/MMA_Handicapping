@@ -11,7 +11,9 @@ from typing import Dict
 
 @dataclass
 class ELOConfig:
-    k_base: float = 32.0
+    # ELO tuning: k_base and logistic_divisor (see docs/elo-tuning-knobs.md).
+    k_base: float = 60.0
+    logistic_divisor: float = 300.0
     initial_elo: float = 1500.0
 
     # Cross-promotion ELO discount by tier (fraction of delta above baseline retained).
@@ -24,7 +26,7 @@ class ELOConfig:
     })
 
     # Kalman process noise: ELO variance added per day of inactivity
-    kalman_process_noise: float = 0.05
+    kalman_process_noise: float = 0.10
 
     # Kalman measurement noise: variance scale for each fight observation
     kalman_measurement_noise: float = 1.0

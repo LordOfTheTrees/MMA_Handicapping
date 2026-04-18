@@ -156,6 +156,16 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 ---
 
+## ADR-15: Kalman layoff clock is per fighter (global), not per weight class
+
+**Context.** ELO **means** are stored per `(fighter_id, weight_class)` because competition level differs by division. The original implementation also keyed **last fight date** only on that pair, so `kalman_predict` saw “days since last fight **in this class**.” A fighter could compete at lightweight, then take a welterweight bout months later, and on return to lightweight the model would still apply a long layoff variance bump to their lightweight state — even though they had just been active in the cage. That conflicts with the intent of the Kalman time update: we are less certain about parameters when we have **not recently observed the athlete**, not when they have not appeared in **this** division.
+
+**Decision.** Maintain **`_last_fight_global[fighter_id]`** — updated on **every** processed fight (all divisions, including draws / NC / DQ where ELO does not move). The Kalman **predict** step before a bout uses **`fight_date - last_global`** for both fighters' states **in the bout's weight class only**. Per-division **`_last_fight[(fighter_id, wc)]`** remains for bookkeeping (e.g. `ELOState.last_fight_date` = last bout **in that class**). **`get_state(..., as_of_date=...)`** applies the same global clock for lookahead-free queries.
+
+**Consequences.** Cross-division activity “refreshes” the time clock for Kalman uncertainty on the next bout in any division. Old **`model.pkl`** files without `_last_fight_global` are migrated on unpickle by taking, per fighter, the **maximum** of known per-division last dates (best effort). **Retrain** after upgrading if you need exact parity with a fresh run.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
@@ -172,3 +182,5 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 | [`architecture.md`](architecture.md) | End-to-end modeling and pipeline design |
 | [`todo.md`](todo.md) | Phases, column specs, validation checklist |
 | [`../TODO.md`](../TODO.md) | Current status, next work bout, gap-report commands |
+| [`validation-and-few-shot.md`](validation-and-few-shot.md) | Time holdout, grouped CV, few-shot / cold-start knobs |
+| [`elo-tuning-knobs.md`](elo-tuning-knobs.md) | What each ELO / Kalman parameter does when you change it |

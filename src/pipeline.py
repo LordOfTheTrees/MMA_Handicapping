@@ -98,22 +98,38 @@ class MMAPredictor:
         for fname in ("ufcstats_fights.csv", "tier1_ufcstats.csv"):
             p = data_dir / fname
             if p.exists():
-                all_fights.extend(load_ufcstats_fights(p))
+                print(f"  [data] loading {fname} ...", flush=True)
+                chunk = load_ufcstats_fights(p)
+                all_fights.extend(chunk)
+                print(f"  [data]   +{len(chunk):,} fights (running total {len(all_fights):,})", flush=True)
                 break
+        else:
+            print("  [data] no ufcstats_fights.csv or tier1_ufcstats.csv found", flush=True)
 
         for promo in ("bellator", "one", "pfl", "rizin"):
             p = data_dir / f"tier2_{promo}.csv"
             if p.exists():
-                all_fights.extend(load_major_promotion_fights(p, promo.upper()))
+                print(f"  [data] loading tier2_{promo}.csv ...", flush=True)
+                chunk = load_major_promotion_fights(p, promo.upper())
+                all_fights.extend(chunk)
+                print(f"  [data]   +{len(chunk):,} fights (total {len(all_fights):,})", flush=True)
 
         p = data_dir / "tier3_sherdog.csv"
         if p.exists():
-            all_fights.extend(load_sherdog_fights(p))
+            print("  [data] loading tier3_sherdog.csv ...", flush=True)
+            chunk = load_sherdog_fights(p)
+            all_fights.extend(chunk)
+            print(f"  [data]   +{len(chunk):,} fights (total {len(all_fights):,})", flush=True)
 
         p = data_dir / "fighter_profiles.csv"
         if p.exists():
+            print("  [data] loading fighter_profiles.csv ...", flush=True)
             self.profiles = load_fighter_profiles(p)
+            print(f"  [data]   {len(self.profiles):,} profiles", flush=True)
+        else:
+            print("  [data] no fighter_profiles.csv (profiles empty)", flush=True)
 
+        print("  [data] sorting fights chronologically ...", flush=True)
         self.fights = sort_fights_chronologically(all_fights)
         return self
 
@@ -132,10 +148,14 @@ class MMAPredictor:
     # Stage 2: ELO construction
     # ------------------------------------------------------------------
 
-    def build_elo(self) -> "MMAPredictor":
+    def build_elo(self, *, elo_progress_every: int = 1000) -> "MMAPredictor":
         """Build ELO ratings from all available fight history."""
         self.elo_model = ELOModel(self.config.elo)
-        self.elo_model.process_fights(self.fights, self.profiles if self.profiles else None)
+        self.elo_model.process_fights(
+            self.fights,
+            self.profiles if self.profiles else None,
+            progress_every=elo_progress_every,
+        )
         return self
 
     # ------------------------------------------------------------------
@@ -180,7 +200,11 @@ class MMAPredictor:
     # Stages 4 + 5: Training data construction and regression fit
     # ------------------------------------------------------------------
 
-    def train_regression(self) -> "MMAPredictor":
+    def train_regression(
+        self,
+        *,
+        matrix_progress_every: int = 500,
+    ) -> "MMAPredictor":
         """
         Build the training feature matrix from Tier 1 post-era fights and fit
         the multinomial logistic regression.
@@ -195,11 +219,20 @@ class MMAPredictor:
         training_fights = filter_tier1_post_era(
             self.fights, self.config.features.era_cutoff_year
         )
+        n_scan = len(training_fights)
+        print(
+            f"  [train] post-{self.config.features.era_cutoff_year} Tier-1 candidate fights: {n_scan:,}",
+            flush=True,
+        )
+        print(
+            "  [train] building feature rows (style axes + ELO snapshot per fight date) ...",
+            flush=True,
+        )
 
         X_rows, y_rows, w_rows = [], [], []
         today = date.today()
 
-        for fight in training_fights:
+        for fi, fight in enumerate(training_fights):
             a_id, b_id = fight.fighter_a_id, fight.fighter_b_id
             wc, fdate = fight.weight_class, fight.fight_date
 
@@ -222,6 +255,16 @@ class MMAPredictor:
             days_old = max(0, (today - fdate).days)
             w_rows.append(1.0 / (1.0 + days_old / 365.0))
 
+            n_done = len(X_rows)
+            if matrix_progress_every > 0 and (
+                n_done == 1 or n_done % matrix_progress_every == 0
+            ):
+                print(
+                    f"  [train] {n_done:,} regression rows "
+                    f"(scanned {fi + 1:,} / {n_scan:,} post-era fights)",
+                    flush=True,
+                )
+
         if not X_rows:
             raise RuntimeError("No valid training fights found. Check data_dir and era_cutoff_year.")
 
@@ -229,17 +272,47 @@ class MMAPredictor:
         self._y_train = np.array(y_rows, dtype=int)
         self._train_weights = np.array(w_rows)
 
+        print(
+            f"  [train] matrix shape {self._X_train.shape}, fitting multinomial regression ...",
+            flush=True,
+        )
         self.regression = MultinomialLogisticModel(
             n_features=self._X_train.shape[1],
             delta=self.config.model.huber_delta,
             l2_lambda=self.config.model.l2_lambda,
         )
-        self.regression.fit(self._X_train, self._y_train)
+        self.regression.fit(self._X_train, self._y_train, verbose=True)
         return self
 
     # ------------------------------------------------------------------
     # Stage 6: Prediction with confidence intervals
     # ------------------------------------------------------------------
+
+    def predict_proba_point_only(
+        self,
+        fighter_a_id: str,
+        fighter_b_id: str,
+        wc: WeightClass,
+        fight_date: date,
+    ) -> np.ndarray:
+        """
+        Return the (6,) softmax probability vector for fighter A vs B — no bootstrap / Cauchy CIs.
+
+        Use for fast checks (symmetry, unit tests). ``predict()`` is preferred interactively.
+        """
+        if self.regression is None:
+            raise RuntimeError("Call train_regression() before predict_proba_point_only().")
+
+        axes_a = self.get_style_axes(fighter_a_id, wc, fight_date)
+        axes_b = self.get_style_axes(fighter_b_id, wc, fight_date)
+        elo_a = self.elo_model.get_state(fighter_a_id, wc, fight_date)
+        elo_b = self.elo_model.get_state(fighter_b_id, wc, fight_date)
+        prof_a = self.profiles.get(fighter_a_id, _empty_profile(fighter_a_id))
+        prof_b = self.profiles.get(fighter_b_id, _empty_profile(fighter_b_id))
+
+        features = build_matchup_features(elo_a, elo_b, axes_a, axes_b, prof_a, prof_b, fight_date)
+        x = features_to_array(features)
+        return self.regression.predict_proba(x)
 
     def predict(
         self,
@@ -269,6 +342,17 @@ class MMAPredictor:
         point_est = self.regression.predict_proba(x)
 
         eff_n = effective_sample_size(self._train_weights)
+        bootstrap_progress_every = 40 if verbose else 0
+        if verbose and eff_n >= self.config.model.cauchy_fallback_threshold:
+            prog = (
+                f", status every {bootstrap_progress_every} resamples"
+                if bootstrap_progress_every
+                else ""
+            )
+            print(
+                f"  [predict] bootstrap CIs ({self.config.model.n_bootstrap} resamples{prog}) ...",
+                flush=True,
+            )
         lower, upper, ci_method = compute_prediction_ci(
             x=x,
             point_estimate=point_est,
@@ -277,6 +361,7 @@ class MMAPredictor:
             train_weights=self._train_weights,
             effective_n=eff_n,
             config=self.config.model,
+            bootstrap_progress_every=bootstrap_progress_every,
         )
 
         if verbose:
