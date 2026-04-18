@@ -32,7 +32,8 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 **Decision.** Extend `_normalize_method` and the loader’s method map so that:
 
-- Banner-driven **draw** (double **D**) and **no contest** (double **NC** or matching text) set `winner_id` blank where appropriate.
+- **Draw — two catches (scraper):** (1) **Method line:** `_normalize_method` maps UFCStats method text that contains **`draw`** to **`draw`**. (2) **Banner override:** if `_person_rows` finds exactly two fighters and **both** status flags are **`D`**, **`method_norm` is forced to `draw`** even when the written method still looks decision-like on the page. That second path is the important “catch” — UFCStats can show inconsistent text vs. the **W/L/D** badges.
+- **No contest — parallel pattern:** method text such as **Could Not Continue** / **No Contest** normalizes to **`no contest`**; **both** banners **`NC`** forces **`no contest`** the same way as double-**D** for draws. **`winner_id`** stays blank for draw / NC where the pipeline expects no winner.
 - **TKO/KO**-prefixed labels (including **doctor’s stoppage**) map to **`ko/tko`** for both scraper and loader so finishes stay consistent with `ResultMethod.KO_TKO`.
 
 **Product rationale (doctor’s stoppage).** Treat these as a **finish credited to the winner**: they materially changed the fight such that the bout was stopped; modeling and ELO use the same **KO/TKO** scale as other stoppages. That implies scraper normalization **and** loader `_parse_method` parity so hand-edited or older CSV rows with long UFCStats strings still load as `KO_TKO`.
