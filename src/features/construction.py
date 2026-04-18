@@ -26,7 +26,7 @@ from ..data.schema import (
 from ..elo.elo import ELOModel
 
 
-# Finish-result methods for finish threat / vulnerability
+# Finish-result methods for finish threat / vulnerability (KO_TKO includes doctor stoppage, etc.)
 _FINISH_METHODS = {ResultMethod.KO_TKO, ResultMethod.SUBMISSION}
 
 # Days assumed per "one fight" for recency decay unit conversion

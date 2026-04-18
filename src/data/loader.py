@@ -16,6 +16,7 @@ Directory layout expected by MMAPredictor.load_data():
         fighter_profiles.csv
 """
 import csv
+import re
 import warnings
 from datetime import date, datetime
 from pathlib import Path
@@ -50,6 +51,7 @@ WEIGHT_CLASS_MAP: Dict[str, WeightClass] = {
     "w flyweight": WeightClass.W_FLYWEIGHT,
     "w bantamweight": WeightClass.W_BANTAMWEIGHT,
     "w featherweight": WeightClass.W_FEATHERWEIGHT,
+    "catch_weight": WeightClass.CATCH_WEIGHT,
 }
 
 METHOD_MAP: Dict[str, ResultMethod] = {
@@ -79,12 +81,34 @@ STANCE_MAP: Dict[str, Stance] = {
 }
 
 
-def _parse_weight_class(raw: str) -> Optional[WeightClass]:
-    return WEIGHT_CLASS_MAP.get(raw.strip().lower())
+def _coerce_weight_class_from_cell(raw: str) -> tuple[Optional[WeightClass], Optional[str]]:
+    """
+    Map CSV ``weight_class`` to :class:`WeightClass`.
+    Non-canonical labels (tournament-only wording, etc.) become ``UNKNOWN`` with the
+    original cell preserved. The scraper writes ``catch_weight`` for catch-weight bouts.
+    """
+    cell = (raw or "").strip()
+    if not cell:
+        return None, None
+    mapped = WEIGHT_CLASS_MAP.get(cell.lower())
+    if mapped is not None:
+        return mapped, None
+    return WeightClass.UNKNOWN, cell
 
 
 def _parse_method(raw: str) -> Optional[ResultMethod]:
-    return METHOD_MAP.get(raw.strip().lower())
+    """
+    Map CSV ``method`` to :class:`ResultMethod`.
+
+    UFCStats long labels (e.g. ``TKO - Doctor's Stoppage``) normalize to ``KO_TKO``:
+    treated as a finish for ``winner_id`` — damage inflicted by the winner led to stoppage.
+    """
+    if raw is None or not str(raw).strip():
+        return None
+    s = re.sub(r"\s+", " ", str(raw).strip().lower())
+    if re.match(r"^(tko|ko)\b", s):
+        return ResultMethod.KO_TKO
+    return METHOD_MAP.get(s)
 
 
 def _parse_date(raw: str) -> Optional[date]:
@@ -126,6 +150,10 @@ def load_ufcstats_fights(data_path: Path) -> List[FightRecord]:
         fight_id, fighter_a_id, fighter_b_id, winner_id, method,
         weight_class, date
 
+    Non-standard ``weight_class`` strings (e.g. catch weight, tournament titles)
+    load as :attr:`WeightClass.UNKNOWN` with :attr:`FightRecord.weight_class_raw`
+    set to the CSV cell.
+
     Optional stat columns (populated when present):
         a_sig_str_landed, a_sig_str_attempted, a_sig_str_absorbed,
         a_td_landed, a_td_attempted, a_ctrl_time_sec, a_sub_attempts,
@@ -138,7 +166,9 @@ def load_ufcstats_fights(data_path: Path) -> List[FightRecord]:
         reader = csv.DictReader(f)
         for row in reader:
             method = _parse_method(row.get("method", ""))
-            weight_class = _parse_weight_class(row.get("weight_class", ""))
+            weight_class, weight_class_raw = _coerce_weight_class_from_cell(
+                row.get("weight_class", "")
+            )
             fight_date = _parse_date(row.get("date", ""))
 
             if method is None or weight_class is None or fight_date is None:
@@ -185,6 +215,7 @@ def load_ufcstats_fights(data_path: Path) -> List[FightRecord]:
                 tier=DataTier.TIER_1,
                 fighter_a_stats=stats_a,
                 fighter_b_stats=stats_b,
+                weight_class_raw=weight_class_raw,
             ))
     return records
 
@@ -206,7 +237,9 @@ def load_major_promotion_fights(data_path: Path, promotion: str) -> List[FightRe
         reader = csv.DictReader(f)
         for row in reader:
             method = _parse_method(row.get("method", ""))
-            weight_class = _parse_weight_class(row.get("weight_class", ""))
+            weight_class, weight_class_raw = _coerce_weight_class_from_cell(
+                row.get("weight_class", "")
+            )
             fight_date = _parse_date(row.get("date", ""))
 
             if method is None or weight_class is None or fight_date is None:
@@ -226,6 +259,7 @@ def load_major_promotion_fights(data_path: Path, promotion: str) -> List[FightRe
                 fight_date=fight_date,
                 promotion=promotion,
                 tier=DataTier.TIER_2,
+                weight_class_raw=weight_class_raw,
             ))
     return records
 
@@ -249,7 +283,9 @@ def load_sherdog_fights(data_path: Path) -> List[FightRecord]:
         reader = csv.DictReader(f)
         for row in reader:
             method = _parse_method(row.get("method", ""))
-            weight_class = _parse_weight_class(row.get("weight_class", ""))
+            weight_class, weight_class_raw = _coerce_weight_class_from_cell(
+                row.get("weight_class", "")
+            )
             fight_date = _parse_date(row.get("date", ""))
 
             if method is None or weight_class is None or fight_date is None:
@@ -269,6 +305,7 @@ def load_sherdog_fights(data_path: Path) -> List[FightRecord]:
                 fight_date=fight_date,
                 promotion=row.get("promotion", "Unknown"),
                 tier=DataTier.TIER_3,
+                weight_class_raw=weight_class_raw,
             ))
     return records
 

@@ -28,6 +28,8 @@ class WeightClass(Enum):
     W_FLYWEIGHT = "w_flyweight"
     W_BANTAMWEIGHT = "w_bantamweight"
     W_FEATHERWEIGHT = "w_featherweight"
+    CATCH_WEIGHT = "catch_weight"
+    UNKNOWN = "unknown"
 
 
 class ResultMethod(Enum):
@@ -86,6 +88,8 @@ class FightRecord:
     tier: DataTier
     fighter_a_stats: Optional[FightStats] = None
     fighter_b_stats: Optional[FightStats] = None
+    #: UFCStats (etc.) label when ``weight_class`` is ``UNKNOWN`` (catch weight, interim wording, …).
+    weight_class_raw: Optional[str] = None
 
 
 @dataclass

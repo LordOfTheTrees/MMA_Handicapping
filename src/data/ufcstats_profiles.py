@@ -21,7 +21,13 @@ from typing import Any, Dict, List, Optional, Set
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
-from src.data.ufcstats_scraper import BASE, DEFAULT_UFCSTATS_FIGHTS_CSV, fetch_soup, _session
+from src.data.ufcstats_scraper import (
+    BASE,
+    DEFAULT_UFCSTATS_FIGHTS_CSV,
+    REQUEST_DELAY_SEC,
+    fetch_soup,
+    _session,
+)
 
 PROFILE_CSV_FIELDS = [
     "fighter_id",
@@ -129,11 +135,12 @@ def scrape_fighter_profiles_to_csv(
     fights_csv: Path,
     out_path: Path,
     *,
-    sleep_sec: float = 0.1,
+    sleep_sec: Optional[float] = None,
     max_fighters: Optional[int] = None,
     progress_every: int = 25,
     session: Optional[requests.Session] = None,
 ) -> int:
+    delay = REQUEST_DELAY_SEC if sleep_sec is None else sleep_sec
     fights_csv = Path(fights_csv)
     if not fights_csv.is_file():
         raise FileNotFoundError(f"Fights CSV not found: {fights_csv}")
@@ -150,7 +157,7 @@ def scrape_fighter_profiles_to_csv(
 
     print(
         f"Fighter profiles: {n_total} unique IDs from {fights_csv.name} -> {out_path} "
-        f"(sleep {sleep_sec}s between requests)",
+        f"(sleep {delay}s between requests)",
         flush=True,
     )
     if n_total == 0:
@@ -162,7 +169,7 @@ def scrape_fighter_profiles_to_csv(
     t0 = time.perf_counter()
     for i, fid in enumerate(ids):
         if i:
-            time.sleep(sleep_sec)
+            time.sleep(delay)
         url = f"{BASE}/fighter-details/{fid}"
         try:
             soup = fetch_soup(sess, url, referer=referer)
@@ -223,7 +230,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--data-dir", type=Path, default=None)
     p.add_argument("--fights-csv", type=Path, default=None, help="Defaults to ufcstats_fights.csv or tier1_ufcstats.csv under --data-dir")
     p.add_argument("--out", type=Path, default=None)
-    p.add_argument("--sleep", type=float, default=0.1)
+    p.add_argument(
+        "--sleep",
+        type=float,
+        default=None,
+        help=f"Seconds between requests (default: {REQUEST_DELAY_SEC}, same as ufcstats scraper)",
+    )
     p.add_argument("--max-fighters", type=int, default=None)
     p.add_argument("--progress-every", type=int, default=25)
     args = p.parse_args(argv)

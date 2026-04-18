@@ -34,7 +34,7 @@ from curl_cffi import requests
 from src.data.loader import METHOD_MAP, WEIGHT_CLASS_MAP
 
 # --- Runtime-tunable request spacing (seconds). CLI ``--sleep`` assigns this in ``main``. ---
-REQUEST_DELAY_SEC: float = 0.1
+REQUEST_DELAY_SEC: float = 0.2
 
 # Default basename next to ``--data-dir`` / ``./data``.
 DEFAULT_UFCSTATS_FIGHTS_CSV = "ufcstats_fights.csv"
@@ -262,6 +262,9 @@ def _normalize_method(method_raw: Optional[str]) -> Optional[str]:
         return "ko/tko"
     if "ko/tko" in s or s == "ko" or s == "tko":
         return "ko/tko"
+    # Doctor's stoppage / punch TKOs: credit as finish for winner (they caused the stoppage).
+    if re.match(r"^(tko|ko)\b", s):
+        return "ko/tko"
     if "submission" in s or s == "sub":
         return "submission"
     if "draw" in s:
@@ -287,25 +290,62 @@ def _normalize_method(method_raw: Optional[str]) -> Optional[str]:
     return None
 
 
-def _weight_class_from_title(title_text: str) -> Optional[str]:
-    t = title_text.strip()
+def _normalize_title_text(title_text: str) -> str:
+    return re.sub(r"\s+", " ", (title_text or "")).strip()
+
+
+def _canonical_weight_class_from_title(title_text: str) -> Optional[str]:
+    """
+    Return loader key (e.g. ``lightweight``) or ``None`` if the title is non-standard.
+
+    Tournament / long titles embed the division as a substring (e.g. "... Lightweight Tournament ...");
+    we match the longest ``WEIGHT_CLASS_MAP`` key first so ``light heavyweight`` wins over
+    ``lightweight``. Catch-weight bouts use the fixed label ``catch_weight`` (numeric weights
+    are not on the fight page). Other odd titles fall through to ``None`` for raw CSV fallback.
+    """
+    t = _normalize_title_text(title_text)
+    if not t:
+        return None
     t = re.sub(r"^UFC\s+", "", t, flags=re.I).strip()
-    for suffix in ("Title Bout", "Championship Bout", "Tournament Bout", "Bout"):
+    for suffix in (
+        "Interim Title Bout",
+        "Title Bout",
+        "Championship Bout",
+        "Tournament Bout",
+        "Bout",
+    ):
         if t.endswith(suffix):
             t = t[: -len(suffix)].strip()
+    t = re.sub(r"^interim\s+", "", t, flags=re.I).strip()
     wc = t.lower().strip()
     if not wc:
         return None
-    if wc not in WEIGHT_CLASS_MAP:
-        return None
-    return wc
+    if wc in WEIGHT_CLASS_MAP:
+        return wc
+
+    haystack = _normalize_title_text(title_text).lower()
+    if "catch weight" in haystack or "catch-weight" in haystack:
+        return "catch_weight"
+
+    for key in sorted(WEIGHT_CLASS_MAP.keys(), key=len, reverse=True):
+        if key in haystack:
+            return key
+    return None
 
 
 def _parse_weight_class(soup: BeautifulSoup) -> Optional[str]:
+    """
+    Canonical division string for ``WEIGHT_CLASS_MAP``, or normalized page title
+    (lowercased) when non-standard so the CSV preserves UFCStats wording.
+    """
     title_el = soup.select_one(".b-fight-details__fight-title")
     if not title_el:
         return None
-    return _weight_class_from_title(title_el.get_text())
+    raw = _normalize_title_text(title_el.get_text())
+    canon = _canonical_weight_class_from_title(raw)
+    if canon:
+        return canon
+    return raw.lower() if raw else None
 
 
 def _person_rows(soup: BeautifulSoup) -> List[Tuple[str, str]]:
@@ -541,7 +581,8 @@ def iter_expected_fights_from_completed_events(
             continue
 
         ev_date = parse_event_date(ev_soup)
-        if ev_date is None or ev_date > date.today():
+        # Only past events: same-day cards often have no results on fight pages yet.
+        if ev_date is None or ev_date >= date.today():
             continue
 
         for furl in fight_urls_from_event_page(ev_soup):
@@ -659,8 +700,11 @@ def scrape_ufcstats_fights_to_csv(
         if ev_date is None:
             print(f"  [skip event] no date: {event_url}", flush=True)
             continue
-        if ev_date > date.today():
-            print(f"  [skip event] future card {ev_date}: {event_url}", flush=True)
+        if ev_date >= date.today():
+            print(
+                f"  [skip event] today/future card (no full results yet) {ev_date}: {event_url}",
+                flush=True,
+            )
             continue
 
         furls = fight_urls_from_event_page(ev_soup)
@@ -744,7 +788,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help=f"Write <data-dir>/{DEFAULT_UFCSTATS_FIGHTS_CSV}",
     )
-    p.add_argument("--sleep", type=float, default=0.1, help="Sets REQUEST_DELAY_SEC (seconds)")
+    p.add_argument("--sleep", type=float, default=0.2, help="Sets REQUEST_DELAY_SEC (seconds)")
     p.add_argument(
         "--failed-entries",
         type=Path,
