@@ -2,15 +2,17 @@
 
 This document captures **implementation and operations decisions** that emerged while building the UFCStats path and running the pipeline. It does not repeat the modeling design in [`architecture.md`](architecture.md) (stages, ELO math, interpretability goals) or the phased checklist in [`todo.md`](todo.md). Treat this as a **decision log**: each entry states context, the choice we made, and consequences.
 
+Some entries consolidate a longer **implementation thread** (failed-entry logging, canonical `ufcstats_*` naming, same-day skip fix, doctor’s stoppage policy, single global throttle, gap-report overrides, and `refresh_data` scope).
+
 ---
 
 ## ADR-01: Request spacing for UFCStats (fights and profiles)
 
-**Context.** Full runs issue thousands of HTTP requests. Too aggressive a rate risks harder blocking; too slow wastes wall time.
+**Context.** Full runs issue thousands of HTTP requests. Too aggressive a rate risks harder blocking; too slow wastes wall time. A rejected alternative was **multiple** module-level sleep constants or a separate “rate limit” module that duplicated the same number in several places.
 
-**Decision.** A single module-level delay, `REQUEST_DELAY_SEC` in [`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py), defaults to **0.2 seconds** between requests. The fighter profile scraper imports the same constant when `--sleep` is omitted, so fights and profiles stay aligned without duplicating magic numbers.
+**Decision.** **One authoritative name** only: `REQUEST_DELAY_SEC` at the top of [`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py), mutated at runtime from the fights CLI `--sleep` (or by assignment before calling into the scraper). The fighter profile scraper **imports** that value when its own `--sleep` is omitted so fights and profiles never drift. The current default in code is **0.2 seconds** (operators historically tried **0.1** and **0.02** for faster runs; **0.2** was chosen as a conservative steady state).
 
-**Consequences.** Full scrapes are intentionally **slow but polite**. Operators can still lower `--sleep` for local experiments. Rough planning: wall time is dominated by server and page work, not by ICMP latency to arbitrary hosts; the delay is a small additive term but helps avoid burst patterns.
+**Consequences.** Full scrapes are intentionally **slow but polite**. No parallel “profile-only” default that disagrees with fights unless you pass an explicit `--sleep` on the profile CLI. For back-of-envelope timing, see **ADR-14**.
 
 ---
 
@@ -31,7 +33,9 @@ This document captures **implementation and operations decisions** that emerged 
 **Decision.** Extend `_normalize_method` and the loader’s method map so that:
 
 - Banner-driven **draw** (double **D**) and **no contest** (double **NC** or matching text) set `winner_id` blank where appropriate.
-- **TKO/KO**-prefixed labels (including doctor stoppage) map to **`ko/tko`** for both scraper and loader so finishes stay consistent with `ResultMethod.KO_TKO`.
+- **TKO/KO**-prefixed labels (including **doctor’s stoppage**) map to **`ko/tko`** for both scraper and loader so finishes stay consistent with `ResultMethod.KO_TKO`.
+
+**Product rationale (doctor’s stoppage).** Treat these as a **finish credited to the winner**: they materially changed the fight such that the bout was stopped; modeling and ELO use the same **KO/TKO** scale as other stoppages. That implies scraper normalization **and** loader `_parse_method` parity so hand-edited or older CSV rows with long UFCStats strings still load as `KO_TKO`.
 
 **Consequences.** Parser and loader must stay in sync when new site labels appear; extend maps in one place and re-scrape if needed.
 
@@ -39,31 +43,32 @@ This document captures **implementation and operations decisions** that emerged 
 
 ## ADR-04: Weight class edge cases (catch weight and unknown labels)
 
-**Context.** Titles include **catch weight** wording and non-standard tournament strings that do not match a fixed division enum.
+**Context.** Titles include **catch weight** wording and non-standard tournament strings (e.g. **Road to UFC** tournament titles) that do not match a fixed division enum.
 
-**Decision.** Map explicit catch-weight titles to a dedicated canonical value (**`catch_weight`**) in the scraper and loader. Non-mapped titles fall through to **raw text** in the CSV; the schema exposes **`WeightClass.UNKNOWN`** (and related fields such as `weight_class_raw` on `FightRecord`) so ingestion does not drop rows silently.
+**Decision.** In the scraper, normalize titles (collapse whitespace, strip common **UFC**/suffix noise such as **Title Bout** / **Tournament Bout** with **Interim Title Bout** ordered before **Title Bout** so interim strips correctly). Detect **catch weight** via substring on the lowercased title before falling back to longest-key substring matching against `WEIGHT_CLASS_MAP`. Map catch-weight bouts to the canonical key **`catch_weight`**. Non-mapped titles are stored as **lower** raw text for CSV fidelity. In the loader, known keys map to enums; unknown cells become **`WeightClass.UNKNOWN`** with **`weight_class_raw`** preserved on `FightRecord`.
 
-**Consequences.** Features and training must treat **`UNKNOWN`** explicitly where needed. Extending `WEIGHT_CLASS_MAP` remains the preferred fix for recurring labels.
+**Consequences.** Features and training must treat **`UNKNOWN`** (and catch weight) explicitly where needed. Recurring tournament patterns should be added to mapping logic when they stabilize.
 
 ---
 
 ## ADR-05: Incomplete cards and same-day events
 
-**Context.** Event pages can list bouts before results exist everywhere on the site.
+**Context.** The completed-events index can still list **today’s** card. Scraping those pages before results are final produced **false parse failures** (e.g. `unmapped_method:None`) that looked like a broken parser but were really **incomplete data**.
 
-**Decision.** Skip events whose parsed date is **today or in the future** when scraping completed listings, so incomplete cards are not partially written.
+**Decision.** Skip events whose parsed date is **`>= date.today()`** (today **and** all future dates). Only **`ev_date < date.today()`** is scraped. Apply the same rule in both the main scraper loop and **`iter_expected_fights_from_completed_events`** so tooling stays consistent.
 
-**Consequences.** A short lag around “fight night” is expected until UFCStats marks the card completed and dated in the past.
+**Consequences.** A short lag around fight night is expected until the card is a **strictly past** date on the site. This wastes fewer requests and keeps `failed_entries.csv` cleaner.
 
 ---
 
 ## ADR-06: Where failures are recorded
 
-**Context.** Operators need to know why a fight is missing from the CSV.
+**Context.** Operators need to know why a fight is missing from the CSV, including hundreds of “almost scraped” rows that never become valid pipeline records.
 
 **Decision.**
 
-- **`failed_entries.csv`** (beside the fights output): per-fight **HTTP errors** and **parse failures** during `scrape_ufcstats_fights_to_csv`.
+- **`failed_entries.csv`** (default: next to the fights output, overridable with **`--failed-entries`**): append one row for **every** fight that does not become a CSV row—**bad fight URL**, **HTTP error** on the fight page, or **`parse_fight_page` returned `None`**. Parse failures use **`diagnose_fight_parse_failure`** for a stable **`failure_kind`** / detail string.
+- **Live logs:** each failure prints immediately as **`[failed <kind>] fight_id=... | <detail>`** (ASCII-friendly punctuation; Unicode in log lines has caused Windows console mojibake in the past).
 - **`ufcstats_gap_report`**: **diff** between site inventory and the CSV (missing `fight_id`s you never successfully ingested). Skipped scrapes do not appear in the fights file, so gap report and failed entries are **complementary**.
 
 **Consequences.** Run **`--check-csv-only`** for structural sanity on rows you already have; use gap report + optional cached event inventory for coverage.
@@ -92,9 +97,9 @@ This document captures **implementation and operations decisions** that emerged 
 
 ## ADR-09: Windows-friendly CLI output
 
-**Context.** On Windows, the default console encoding (e.g. cp1252) can raise **`UnicodeEncodeError`** on common Unicode punctuation in `print`.
+**Context.** On Windows, the default console encoding (e.g. cp1252) can raise **`UnicodeEncodeError`** on common Unicode punctuation in `print`, and can show **mojibake** for characters like em dashes in scraper progress lines.
 
-**Decision.** Use **ASCII** for high-traffic user-facing strings in [`main.py`](../main.py) (e.g. `->` instead of Unicode arrows in train progress). Docstrings and rare code paths may still contain Unicode; predict/explain tables that use symbols should be tested on cp1252 if surfaced to users.
+**Decision.** Use **ASCII** for high-traffic user-facing strings in [`main.py`](../main.py) (e.g. `->` instead of Unicode arrows in train progress). Apply the same discipline to **scraper** stderr/stdout messages that always run in operator terminals. Docstrings may still contain Unicode; rare paths (e.g. Cauchy CI footnotes) should be tested on cp1252 if they print by default.
 
 **Consequences.** Prefer plain ASCII in CLI `print` paths that always run on first-time setups.
 
@@ -107,6 +112,46 @@ This document captures **implementation and operations decisions** that emerged 
 **Decision.** Lower the default **`ModelConfig.n_bootstrap`** to **200**, with the understanding that **tighter or more stable intervals** for research or production can raise this after a cost/benefit check.
 
 **Consequences.** Saved **`model.pkl`** embeds the config in effect at **`train`** time; changing the default requires **retraining** (or manual config injection) for old pickles to pick up the new behavior.
+
+---
+
+## ADR-11: Canonical on-disk names (`ufcstats_*` + legacy fallback)
+
+**Context.** Early code used **“tier1”** filenames and CLI flags that did not generalize to “UFCStats is the source” and confused future tiers (Bellator, Sherdog, etc.).
+
+**Decision.** Primary fights output is **`ufcstats_fights.csv`** (constant `DEFAULT_UFCSTATS_FIGHTS_CSV`). Docs and tools use **`ufcstats_gap_report`**, **`ufcstats_event_inventory.csv`**, **`ufcstats_missing_fights.csv`**, etc. The pipeline’s [`load_data`](../src/pipeline.py) tries **`ufcstats_fights.csv` first**, then falls back to legacy **`tier1_ufcstats.csv`** so old trees keep working.
+
+**Consequences.** User-facing instructions should prefer **`--data-dir`** / **`ufcstats_*`** paths; **`tier1_*`** is legacy compatibility only.
+
+---
+
+## ADR-12: Gap report must not clobber the scraper throttle global
+
+**Context.** Inventory and gap tooling reuses the same HTTP patterns as the scraper. Mutating **`REQUEST_DELAY_SEC`** from a side tool risks surprising the operator’s next full scrape.
+
+**Decision.** **`iter_expected_fights_from_completed_events`** accepts an optional **`request_delay_sec`** (or equivalent) passed into **`_throttle`**, so gap-report crawls can space requests **without** assigning the module global. The fights **`main()`** path continues to set **`REQUEST_DELAY_SEC`** from **`--sleep`** only.
+
+**Consequences.** Long-running gap jobs and fight scrapes can use different sleeps in the same Python process if ever orchestrated together (still prefer separate processes for clarity).
+
+---
+
+## ADR-13: `refresh_data` is a thin orchestrator
+
+**Context.** The scrapers expose rich CLIs: **`--max-events`**, **`--max-fights`**, **`--failed-entries`**, **`--sleep`**, profile **`--max-fighters`**, etc.
+
+**Decision.** [`refresh_data`](../src/data/refresh.py) only calls **`scrape_ufcstats_fights_to_csv`** and **`scrape_fighter_profiles_to_csv`** with default paths—**no argument forwarding**. **`main.py train --full-rebuild`** therefore means “full default refresh,” not “cap/smoke refresh.” For capped or custom runs, invoke **`python -m src.data.ufcstats_scraper`** and **`python -m src.data.ufcstats_profiles`** directly (or extend `refresh_data` later with an explicit API).
+
+**Consequences.** Operators should not expect **`--full-rebuild`** to honor ad-hoc scrape limits without code changes.
+
+---
+
+## ADR-14: Planning scrape duration (sleep vs network baselines)
+
+**Context.** Operators want order-of-magnitude wall-clock estimates. A one-off **ICMP ping** to a public DNS (e.g. **~12 ms RTT** to `1.1.1.1`) is easy to run but **does not** measure UFCStats HTML time.
+
+**Decision.** Use a **structural** lower bound when reasoning about throttle contribution: with **`E`** events kept and **`N`** fight pages fetched, **`_throttle()`** runs **`K = E + N`** times (index fetch has **no** leading throttle; **`R = 1 + E + N`** HTTP GETs). A toy bound is **`K · sleep`** plus an optional **~RTT × R** term if you want a numeric floor—**real** runs are dominated by **TLS + server + page size**, often on the order of **seconds per page**, not tens of milliseconds.
+
+**Consequences.** Use ping only as a **generic connectivity** check, not to predict UFCStats latency. For ETA, anchor on observed **per-event** or **per-request** wall times from a short capped run at the chosen **`REQUEST_DELAY_SEC`**.
 
 ---
 
