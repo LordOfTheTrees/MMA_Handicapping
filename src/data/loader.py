@@ -7,7 +7,7 @@ weight class or method strings are skipped with a warning rather than crashing.
 
 Directory layout expected by MMAPredictor.load_data():
     data/
-        tier1_ufcstats.csv
+        ufcstats_fights.csv (or legacy tier1_ufcstats.csv)
         tier2_bellator.csv
         tier2_one.csv
         tier2_pfl.csv

@@ -1,16 +1,19 @@
 """
 Optional hook: repopulate ``data_dir`` with CSVs before a full-rebuild train run.
 
-``main.py train --full-rebuild`` calls :func:`refresh_data`. Replace the body with
-your scraper or orchestration (write tier*.csv and fighter_profiles.csv).
+``main.py train --full-rebuild`` calls :func:`refresh_data`.
 """
 
 from pathlib import Path
 
+from .ufcstats_profiles import scrape_fighter_profiles_to_csv
+from .ufcstats_scraper import DEFAULT_UFCSTATS_FIGHTS_CSV, scrape_ufcstats_fights_to_csv
+
 
 def refresh_data(data_dir: Path) -> None:
-    """Download or regenerate CSVs under *data_dir*, then return."""
-    raise NotImplementedError(
-        "Implement refresh_data() in src/data/refresh.py to fetch CSVs into data_dir, "
-        "or run `python main.py train` without --full-rebuild to use existing files."
-    )
+    """Regenerate UFCStats fights CSV and fighter profiles under *data_dir*."""
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fights_path = data_dir / DEFAULT_UFCSTATS_FIGHTS_CSV
+    scrape_ufcstats_fights_to_csv(fights_path)
+    scrape_fighter_profiles_to_csv(fights_path, data_dir / "fighter_profiles.csv")

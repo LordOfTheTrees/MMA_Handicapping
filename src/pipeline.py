@@ -88,16 +88,18 @@ class MMAPredictor:
         Load all CSV data sources from data_dir.
 
         Expected files (missing files are silently skipped):
-            tier1_ufcstats.csv
+            ufcstats_fights.csv (or legacy tier1_ufcstats.csv)
             tier2_bellator.csv  tier2_one.csv  tier2_pfl.csv  tier2_rizin.csv
             tier3_sherdog.csv
             fighter_profiles.csv
         """
         all_fights: List[FightRecord] = []
 
-        p = data_dir / "tier1_ufcstats.csv"
-        if p.exists():
-            all_fights.extend(load_ufcstats_fights(p))
+        for fname in ("ufcstats_fights.csv", "tier1_ufcstats.csv"):
+            p = data_dir / fname
+            if p.exists():
+                all_fights.extend(load_ufcstats_fights(p))
+                break
 
         for promo in ("bellator", "one", "pfl", "rizin"):
             p = data_dir / f"tier2_{promo}.csv"

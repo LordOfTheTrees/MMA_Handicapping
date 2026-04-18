@@ -3,16 +3,32 @@
 
 Steps are ordered chronologically. Detail decreases the further out they are.
 
+### Roadmap vs this doc
+
+- **[`TODO.md`](../TODO.md)** — **Current status** (what is implemented), **next work bout** (ordered immediate steps), and the UFCStats scrape skip / `ufcstats_gap_report` log. Read that first for “where we are / what to do next.”
+- **This file** — Column specs, phased checklists (Phase 1–5), and deeper validation / tuning notes.
+
+**Gate:** Phase 2 (below) is the next **milestone** once refreshed `ufcstats_fights.csv` (or legacy `tier1_ufcstats.csv`) and `fighter_profiles.csv` are in `data/`. Phase 3+ assumes Phase 2 smoke tests pass.
+
 ---
 
 ## Phase 1 — Data Acquisition & Ingestion
-*Everything downstream is blocked until there is real data in the correct CSV format.*
+*Primary UFC CSVs are produced by the in-repo scrapers; remaining work is refresh cadence, gap checks, and optional tiers 2–3.*
 
-### 1.1 UFCStats Scraper (Tier 1)
+### 1.1 UFCStats fights scraper (`scrape_ufcstats_fights_to_csv`)
+
+**Status:** Implemented in [`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py) (`scrape_ufcstats_fights_to_csv`, `parse_fight_page`, …). Discovery uses the completed-events page with `?page=all` (~770 events), then each event page and each `fight-details` URL. HTTP uses `curl_cffi` with Chrome impersonation and a referer chain.
+
+**Runtime:** A full scrape issues thousands of requests; spacing is **`REQUEST_DELAY_SEC`** in that module (CLI `--sleep` in `main()`, default **0.1 s**). Plan for **several hours** wall time depending on network. Fighter profiles (`scrape_fighter_profiles_to_csv` in `ufcstats_profiles.py`) are a separate pass over **unique fighter IDs** from the fights CSV.
+
+**Outcome normalization (UFCStats quirks):**
+- Both fighter banners **D** → `method` = `draw` (method line may still read like a decision).
+- Both banners **NC**, or method text such as **Could Not Continue** / **No Contest** → `no contest`; `winner_id` blank.
+- Disqualification wording → `dq` (winner inferred from W/L when the site shows one fighter **L**).
 
 The model needs per-fight striking and grappling stats for every UFC fight from 2013 onward, plus outcome/method data for older fights used in ELO construction.
 
-**Target columns for `data/tier1_ufcstats.csv`:**
+**Target columns for `data/ufcstats_fights.csv`** (pipeline also accepts legacy `tier1_ufcstats.csv`):
 
 | Column | Description |
 |---|---|
@@ -34,13 +50,18 @@ The model needs per-fight striking and grappling stats for every UFC fight from 
 | *(same b_ columns for Fighter B)* | — |
 
 **Action items:**
-- [ ] Write or adapt a UFCStats scraper (Python `requests` + `BeautifulSoup`). UFCStats has a consistent URL pattern: `ufcstats.com/fight-details/<fight_id>`.
-- [ ] Scrape the full fight listing from `ufcstats.com/statistics/events/completed` to get all fight IDs.
-- [ ] Assign stable `fighter_id` values — use the UFCStats fighter URL slug (e.g. `jon-jones-xyz123`) as the canonical ID. This ensures the same fighter maps to the same ID across all data sources.
-- [ ] Save scraper output as `data/tier1_ufcstats.csv`.
-- [ ] Verify row count: as of 2024 there are approximately 7,000 UFC fights on record.
+- [x] UFCStats scraper (`curl_cffi` + BeautifulSoup). URL pattern: `ufcstats.com/fight-details/<fight_id>` (hex id).
+- [x] Full listing from `ufcstats.com/statistics/events/completed?page=all` → per-event fight links.
+- [x] Stable `fighter_id`: hex segment from `/fighter-details/<id>` (same id in fights CSV and profiles).
+- [x] Scraper writes `data/ufcstats_fights.csv` by default (via `--data-dir` or `--out`); failures logged to `failed_entries.csv`.
+- [x] Row count: full runs are on the order of **8k+** fights; exact count grows with new events.
+
+**Skip investigation**  
+Skipped fights never appear in the CSV. Use [`TODO.md`](../TODO.md) §F and `python -m src.data.ufcstats_gap_report` with optional cached event inventory (`tier1_inventory_io`). Early runs saw hundreds of skips; extending `_normalize_method` / weight-class mapping in `ufcstats_scraper.py` fixes most systematic gaps (re-scrape after parser changes).
 
 ### 1.2 Fighter Profiles (Physical Attributes)
+
+**Status:** [`src/data/ufcstats_profiles.py`](../src/data/ufcstats_profiles.py) (`scrape_fighter_profiles_to_csv`) reads fighter IDs from `ufcstats_fights.csv` (or legacy `tier1_ufcstats.csv` when using `--data-dir`) and writes `fighter_profiles.csv`. Run after the fights CSV is updated.
 
 UFCStats also has reach, height, date of birth, and stance per fighter.
 
@@ -66,8 +87,14 @@ UFCStats also has reach, height, date of birth, and stance per fighter.
 
 Pedigree only affects cold-start ELO and style axis priors for fighters with fewer than ~3 observed fights. It has zero influence once real UFC data is available for the fighter.
 
-- [ ] Scrape fighter profile pages from UFCStats (the fighter index at `ufcstats.com/statistics/fighters`).
+- [x] Scrape profile pages from UFCStats (`/fighter-details/<id>` for each ID seen in the fights CSV).
 - [ ] Populate pedigree signals manually for debut fighters, or leave at `0.0` and let the ELO and style axes update from real fights. Manual entry can be deferred.
+
+**Standalone profile scrape** (IDs derived from the fights CSV; run after `scrape_ufcstats_fights_to_csv` is complete):
+
+```bash
+python -m src.data.ufcstats_profiles --data-dir ./data
+```
 
 ### 1.3 Tier 2 — Major Promotions (Optional but Valuable for Cold Start)
 
@@ -87,7 +114,7 @@ Used for ELO construction only — outcome and method, no stats needed.
 
 **Target: `data/tier3_sherdog.csv`**
 
-Sherdog Fight Finder covers the vast majority of professional MMA fights globally. Key challenge is ID consistency: Sherdog uses its own numeric IDs, UFCStats uses slug-based IDs. A mapping table (`data/id_crosswalk.csv`) linking Sherdog IDs to UFCStats fighter IDs is needed for fighters who appear in both datasets.
+Sherdog Fight Finder covers the vast majority of professional MMA fights globally. Key challenge is ID consistency: Sherdog uses its own numeric IDs, UFCStats uses **hex** IDs from profile/fight URLs. A mapping table (`data/id_crosswalk.csv`) linking Sherdog IDs to UFCStats fighter IDs is needed for fighters who appear in both datasets.
 
 - [ ] Download or scrape Sherdog fight records for fighters who appear in the UFC.
 - [ ] Build `data/id_crosswalk.csv` with columns `sherdog_id`, `fighter_id` (UFCStats canonical).
@@ -96,11 +123,11 @@ Sherdog Fight Finder covers the vast majority of professional MMA fights globall
 ---
 
 ## Phase 2 — Pipeline Smoke Test
-*Run the full pipeline on real data for the first time. Goal: no crashes, plausible outputs.*
+*Run the full pipeline on real data for the first time. Goal: no crashes, plausible outputs. This is the **next milestone** after UFCStats fights + profiles are refreshed—see **`TODO.md` → Next work bout** for the ordered steps into this phase.*
 
 ### 2.1 End-to-End Run
 
-With `data/tier1_ufcstats.csv` and `data/fighter_profiles.csv` in place:
+With `data/ufcstats_fights.csv` (or legacy `tier1_ufcstats.csv`) and `data/fighter_profiles.csv` in place:
 
 ```bash
 python main.py train --data-dir ./data
