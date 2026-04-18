@@ -51,6 +51,11 @@ def expected_score(elo_a: float, elo_b: float) -> float:
     return 1.0 / (1.0 + 10.0 ** ((elo_b - elo_a) / 400.0))
 
 
+def _defaultdict_none() -> None:
+    """Pickle-safe factory for ``defaultdict`` entries that should start as ``None``."""
+    return None
+
+
 def elo_delta(
     elo_a: float,
     elo_b: float,
@@ -93,7 +98,7 @@ class ELOModel:
         self.config = config
         # (fighter_id, WeightClass) -> KalmanState
         self._states: Dict[Tuple[str, WeightClass], KalmanState] = {}
-        self._last_fight: Dict[Tuple[str, WeightClass], Optional[date]] = defaultdict(lambda: None)
+        self._last_fight: Dict[Tuple[str, WeightClass], Optional[date]] = defaultdict(_defaultdict_none)
         self._n_fights: Dict[Tuple[str, WeightClass], int] = defaultdict(int)
         self._best_tier: Dict[Tuple[str, WeightClass], DataTier] = {}
 

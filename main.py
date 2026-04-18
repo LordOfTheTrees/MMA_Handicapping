@@ -105,7 +105,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     if args.full_rebuild:
         from src.data.refresh import refresh_data
 
-        print(f"Refreshing data → {data_dir} ...")
+        print(f"Refreshing data -> {data_dir} ...")
         refresh_data(data_dir)
 
     if not data_dir.exists():
@@ -129,7 +129,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     n_train = len(predictor._y_train) if predictor._y_train is not None else 0
     print(f"  Regression trained on {n_train:,} fights.")
 
-    print(f"Saving model → {model_path}")
+    print(f"Saving model -> {model_path}")
     predictor.save(model_path)
     print("Done.\n")
 

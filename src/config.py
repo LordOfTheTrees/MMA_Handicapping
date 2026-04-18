@@ -45,8 +45,9 @@ class FeatureConfig:
 
 @dataclass
 class ModelConfig:
-    # Bootstrap resamples for CI computation.
-    n_bootstrap: int = 1000
+    # Bootstrap resamples for CI computation (each refits on the training set).
+    # Lower default keeps ``predict``/``explain`` responsive; raise for tighter CIs.
+    n_bootstrap: int = 200
 
     # Two-sided confidence level for intervals (0.05 → 95% CI).
     ci_alpha: float = 0.05
