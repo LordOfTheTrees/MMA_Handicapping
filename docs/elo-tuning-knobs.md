@@ -2,7 +2,7 @@
 
 Defaults live in [`src/config.py`](../src/config.py) (`ELOConfig`). Method scaling is in [`src/elo/elo.py`](../src/elo/elo.py) (`_K_SCALE`). **`logistic_divisor`** in config feeds `expected_score` (default **300**).
 
-**Sequential tuning:** Change **one** knob at a time when experimenting; **retrain** after changes. Current repo defaults: **`k_base` = 60**, **`logistic_divisor` = 300** (baseline `k_base` was 32, divisor was 400).
+**Sequential tuning:** Change **one** knob at a time when experimenting; **retrain** after changes. Current repo defaults: **`k_base` = 100**, **`logistic_divisor` = 300** (baseline `k_base` was 32, divisor was 400).
 
 Changing ELO dynamics changes **`elo_differential`** (and uncertainty) fed into the regression — after substantive tweaks, **retrain** the multinomial model and re-check calibration.
 
@@ -62,7 +62,7 @@ Same rating **gap** implies a **steeper** win-expectancy curve if you **lower** 
 
 ---
 
-## 5. `kalman_process_noise` (default `0.10` per **day** of inactivity; was `0.05`)
+## 5. `kalman_process_noise` (default `0.0025` per **day** of inactivity; was `0.01`, then `0.10`, originally `0.05`)
 
 **Role:** Before each fight, variance grows: `P += process_noise * days_since_last_fight` ([`kalman_predict`](../src/elo/kalman.py)). **Days** are since the fighter's last bout **in any weight class** (global layoff clock; [`architecture.md`](architecture.md) §4.5, **ADR-15**).
 
@@ -70,6 +70,8 @@ Same rating **gap** implies a **steeper** win-expectancy curve if you **lower** 
 |--------|--------|
 | **Increase** | After layoffs, **uncertainty** is larger → **larger Kalman gain** on the next update → the post-fight mean can move **more** toward the classical `value + delta` target after long gaps. **Point ELO** paths: slightly more reactive **returning** fighters. |
 | **Decrease** | Filter stays **confident** through layoffs; less variance inflation; **smaller** gain; updates **damp** after time off. |
+
+The direction of layoff response (amplify vs damp) was a deliberate product choice — see **ADR-16** in [`architecture-decisions.md`](architecture-decisions.md) and the full framing in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
 
 **Does not** by itself widen the **steady-state spread** of ratings across the roster the way `k_base` does; it mostly shapes **time-off behavior** and **posterior uncertainty** (used in features / CIs).
 
@@ -103,16 +105,17 @@ Mostly affects fighters with **Tier 2/3** history, not pure UFCStats-only paths.
 
 ## Quick “what to turn first?”
 
-1. **`k_base`** — “ratings should move more / less.” (**Now 60.**)  
+1. **`k_base`** — “ratings should move more / less.” (**Now 100.**)  
 2. **`logistic_divisor`** — “what does +100 ELO **mean** in win %?” (**Now 300.**)  
 3. **`_K_SCALE`** — how much **method** vs **opponent surprise** drives steps. (**KO/submission** multipliers **1.5**.)  
-4. **Kalman `R` and process noise** — **smoothing vs reactivity** and **uncertainty** bands. (**Process noise** **0.10**/day.)
+4. **Kalman `R` and process noise** — **smoothing vs reactivity** and **uncertainty** bands. (**Process noise** **0.0025**/day.)
 
 ---
 
 ## See also
 
 - [`elo-modeling-status.md`](elo-modeling-status.md) — tuned defaults, regression wiring, next steps for Kalman × ELO  
+- [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md) — why long layoffs **amplify** (not damp) the next update (ADR-16)  
 - [`architecture.md`](architecture.md) — ELO + Kalman design intent  
 - [`docs/architecture-decisions.md`](architecture-decisions.md) — product decisions log  
-- [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — visualize per-division ELO spread after changes (`--top-n` for ranked tables)
+- [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — visualize per-division ELO spread after changes (`--top-n` for ranked tables); default PNG is `data/elo_by_division.png` (existing file is deleted then rewritten each run; copy aside from `data/` first if you want to keep a snapshot)

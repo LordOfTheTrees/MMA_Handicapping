@@ -185,10 +185,12 @@ assert abs(p1[0] - p2[4]) < 0.12  # example tolerance; tune after validation str
 ## Phase 3 — Holdout Validation
 *The model runs. Now check whether it's actually making good predictions.*
 
-### 3.1 Build a Holdout Set
+### 3.1 Build a Train / Test Split
 
-- Reserve UFC fights from a fixed recent window (e.g., 2023–2024) as the holdout. They are excluded from regression training but ELO is still updated through them.
-- Add an `era_cutoff_year` parameter to `filter_tier1_post_era()` plus a separate `holdout_start_year` parameter for this purpose.
+- **Holdout (evaluation-only):** Reserve UFC fights from a fixed **recent calendar window** (e.g. fights on or after **2023-01-01**, or years **2023–2024**) for scoring only. They are **excluded from regression training**; **ELO** (and style history) should still be built **chronologically** so features at each holdout fight use only past information (same lookahead discipline as today).
+- **Implementation (to add):** e.g. `holdout_start_date` or `holdout_start_year` in [`src/config.py`](../src/config.py) + filter in [`train_regression`](../src/pipeline.py) so `X_train` / `y_train` exclude holdout rows. Keep [`FeatureConfig.era_cutoff_year`](../src/config.py) as the **regression-era floor** (default **2013**); it is independent of the holdout window.
+- **Protocol:** Prefer **time-based** holdout (see [`validation-and-few-shot.md`](validation-and-few-shot.md)). Optional **walk-forward** (expand training end, score the next chunk) for drift.
+- **Do not** use IID random splits across fight rows (fighter leakage).
 
 ### 3.2 Accuracy and Calibration
 
@@ -197,15 +199,50 @@ assert abs(p1[0] - p2[4]) < 0.12  # example tolerance; tune after validation str
 - **Calibration plot**: bin predictions by predicted probability; plot predicted vs. observed frequency. A well-calibrated model lies on the diagonal.
 - **Brier score**: mean squared error of the predicted probability vector against the one-hot true outcome.
 
-### 3.3 Tune Open Design Parameters Against Holdout
+### 3.3 Phase 3 tuning inventory (evaluate on holdout)
 
-Work through the parameters from architecture Section 10 one at a time, fixing all others:
+Tune **one knob at a time** (or small factorial only after baselines), fixing others; compare **holdout log-loss** (primary), Brier, and calibration. Source of truth for semantics: [`src/config.py`](../src/config.py), [`docs/elo-tuning-knobs.md`](elo-tuning-knobs.md), [`src/elo/elo.py`](../src/elo/elo.py) (`_K_SCALE`).
 
-1. **Era cutoff year** — try 2010, 2012, 2013, 2015. Expect a U-shape: too early includes non-stationary data; too late throws away useful data.
-2. **K-factor base** — try 16, 24, 32, 40. Affects how quickly ELO responds to results.
-3. **Recency decay rate λ** — try 0.05, 0.10, 0.20. Affects how much recent fights dominate style axes.
-4. **Cross-promotion discount** — tune Tier 2 and Tier 3 discounts independently.
-5. **Cauchy fallback threshold** — tune against CI coverage: what fraction of true outcomes fall inside the stated CI?
+#### Train / era boundary
+
+| Item | Where | Role in Phase 3 |
+|------|--------|-----------------|
+| **`era_cutoff_year`** (default **2013**) | `FeatureConfig` | **Regression training floor** — Tier 1 fights before this year are excluded from the **multinomial** fit. **Tune on holdout** (e.g. try 2010, 2012, 2013, 2015): too early → non-stationary sport; too late → less data. Listed explicitly as a **first-class tuning lever**, not a fixed constant. |
+| **Holdout window** | TBD `holdout_start_*` + pipeline filter | **Evaluation-only** fights; must not appear in `X_train`. |
+| **Training row weights** | `train_regression` (recency: `1 / (1 + days_old/365)`) | Implicit **sample weights** on post-era rows; document sensitivity in ablations if needed. |
+
+#### ELO layer (`ELOConfig` + method scale)
+
+| Item | Where | Role in Phase 3 |
+|------|--------|-----------------|
+| **`k_base`** | `ELOConfig` | Scales ELO step size; tune vs holdout through features + ELO differential. |
+| **`logistic_divisor`** | `ELOConfig` | Win-expectancy curve vs rating gap; tune with `k_base`. |
+| **`initial_elo`** | `ELOConfig` | Usually fixed at 1500; revisit only if rescaling the whole system. |
+| **`tier_discount`** (Tiers 1–4) | `ELOConfig` | Cross-promotion transfer; tune Tier 2/3 (and policy for cold imports). |
+| **`kalman_process_noise`** | `ELOConfig` | Layoff → variance → Kalman gain; tune with **`kalman_measurement_noise`**. |
+| **`kalman_measurement_noise`** | `ELOConfig` | Damps / amplifies Kalman updates globally. |
+| **`_K_SCALE`** (KO/sub/decision multipliers) | `elo.py` | Method-of-finish scaling on `k_base`; tune if finish vs decision balance matters on holdout. |
+
+#### Feature construction (`FeatureConfig`)
+
+| Item | Where | Role in Phase 3 |
+|------|--------|-----------------|
+| **`recency_decay_rate`** (λ) | `FeatureConfig` | Style-axis recency decay; try e.g. 0.05, 0.10, 0.20. |
+| **`min_fights_style_estimate`** | `FeatureConfig` | Cold-start vs UFC-data trust for style axes. |
+
+#### Multinomial / CI (`ModelConfig`)
+
+| Item | Where | Role in Phase 3 |
+|------|--------|-----------------|
+| **`l2_lambda`** | `ModelConfig` | Coefficient shrinkage; affects generalization. |
+| **`huber_delta`** | `ModelConfig` | Robust loss tail; outlier sensitivity. |
+| **`n_bootstrap`** | `ModelConfig` | Count of stored bootstrap draws (train cost vs CI stability). |
+| **`bootstrap_seed`** | `ModelConfig` | Reproducibility of bootstrap draws. |
+| **`ci_alpha`** | `ModelConfig` | CI width (e.g. 0.05 → 95%). |
+| **`cauchy_fallback_threshold`** | `ModelConfig` | ESS below this → Cauchy CIs; tune vs empirical CI coverage on holdout. |
+| **`cauchy_scale`** | `ModelConfig` | Width of Cauchy fallback intervals. |
+
+**Legacy note:** Section 3.3 previously listed a shorter subset; the table above is the **authoritative Phase 3 checklist** (era boundary, all ELO levers above, train/test split parameters once implemented, thresholds and weights).
 
 ---
 
@@ -227,3 +264,9 @@ Work through the parameters from architecture Section 10 one at a time, fixing a
 - Incrementally update ELO after each fight rather than full reprocessing.
 - Decide on a regression refitting cadence (e.g. monthly full refit vs. online updates).
 - Consider a simple web interface or API endpoint for prediction queries.
+
+---
+
+## Side projects (low priority)
+
+- **ELO trajectory concavity / “never downtrend”** — After [`build_elo(..., record_trajectories=True)`](../src/pipeline.py) and [`ELOModel.get_trajectory`](../src/elo/elo.py), analyze per-division ELO sequences (see [`scripts/chart_elo_trajectory.py`](../scripts/chart_elo_trajectory.py)) using **concavity**, segment-wise slopes, or consecutive deltas to identify fighters whose trajectory **never shows a downtrend** under a clear rule (exploratory; define thresholds and minimum fights). Not a core model deliverable.

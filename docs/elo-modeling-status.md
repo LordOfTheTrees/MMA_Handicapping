@@ -2,7 +2,7 @@
 
 This document records **where the ELO + Kalman layer stands** after iterative tuning, what is wired into the rest of the pipeline, and **planned improvements** (especially using Kalman uncertainty consistently).
 
-For **knob semantics** (what each parameter does when you change it), see [`elo-tuning-knobs.md`](elo-tuning-knobs.md). For **design intent** (stages, cold start, global layoff clock), see [`architecture.md`](architecture.md) §4 and **ADR-15** in [`architecture-decisions.md`](architecture-decisions.md).
+For **knob semantics** (what each parameter does when you change it), see [`elo-tuning-knobs.md`](elo-tuning-knobs.md). For **design intent** (stages, cold start, global layoff clock), see [`architecture.md`](architecture.md) §4 and **ADR-15** in [`architecture-decisions.md`](architecture-decisions.md). For the **layoff-response direction** (why we amplify rather than damp updates after idle time), see **ADR-16** and the full framing in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
 
 ---
 
@@ -11,13 +11,13 @@ For **knob semantics** (what each parameter does when you change it), see [`elo-
 | Piece | Status |
 |--------|--------|
 | **Per–weight-class ELO means** | Each `(fighter_id, weight_class)` has a Kalman state: mean (`value`) + variance. |
-| **`k_base`** | **60** — scales classical ELO deltas (after method multiplier). |
+| **`k_base`** | **100** — scales classical ELO deltas (after method multiplier). |
 | **`logistic_divisor`** | **300** in `ELOConfig`, threaded into `expected_score` / `elo_delta` (steeper win-expectancy vs rating gap than the old hardcoded 400). |
 | **Finish multipliers** | **KO/TKO** and **submission** both **×1.5** on `k_base`; unanimous decision **×1.0**; split/majority **×0.5**; draw / NC / DQ **×0**. |
-| **Kalman process noise** | **0.10** variance per **day** of global inactivity (doubled from the original **0.05** baseline). |
+| **Kalman process noise** | **0.0025** variance per **day** of global inactivity (stronger damping vs **0.01** / **0.10**; original baseline was **0.05**). |
 | **Global layoff clock (ADR-15)** | `kalman_predict` before a bout uses days since the fighter’s **last fight in any division**; per-division `last_fight_date` on `ELOState` remains “last bout in this class.” |
 | **Draw / NC / DQ** | No ELO delta; clock and division bookkeeping still advance. |
-| **Validation tooling** | [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — histograms by division, summary stats, **`--top-n`** ranked tables (ELO, id, name). |
+| **Validation tooling** | [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — histograms by division, summary stats, **`--top-n`** ranked tables; default chart **`data/elo_by_division.png`**. |
 
 **Source of truth for numeric defaults:** [`src/config.py`](../src/config.py) (`ELOConfig`) and [`src/elo/elo.py`](../src/elo/elo.py) (`_K_SCALE`).
 
@@ -56,4 +56,5 @@ Document outcomes of any experiment in this file or in [`elo-tuning-knobs.md`](e
 |--------|--------|
 | Knob guide | [`elo-tuning-knobs.md`](elo-tuning-knobs.md) |
 | ADR global layoff clock | [`architecture-decisions.md`](architecture-decisions.md) **ADR-15** |
+| ADR amplify-on-layoff decision | [`architecture-decisions.md`](architecture-decisions.md) **ADR-16** + [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md) |
 | Roadmap / Phase gates | [`TODO.md`](../TODO.md), [`todo.md`](todo.md) |

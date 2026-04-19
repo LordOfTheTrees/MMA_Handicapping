@@ -18,7 +18,7 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 **On disk (`data/`):**
 
-- Whatever **you last wrote** is the source of truth: a **full refresh in progress**, a **finished** `ufcstats_fights.csv` / `fighter_profiles.csv`, or copies under `Saved_Runs/`. This roadmap does **not** assume a scrape has finished until **you** record it (see §F table).
+- Whatever **you last wrote** under **`data/`** is the source of truth: a **full refresh in progress**, a **finished** `ufcstats_fights.csv` / `fighter_profiles.csv`, or anything you’ve copied out of `data/` for your own archives. This roadmap does **not** assume a scrape has finished until **you** record it (see §F table).
 
 **ELO + Kalman (modeled, tuned):**
 
@@ -26,7 +26,7 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 **Not the focus yet (optional / later):**
 
-- Tier 2–3 promotion CSVs, pedigree manual fill, holdout tuning (Phase 3+), CI—see `docs/todo.md`.
+- Tier 2–3 promotion CSVs, pedigree manual fill, **Phase 3 holdout tuning** (`era_cutoff_year` / **2013 boundary**, ELO levers, train–test split, thresholds/weights — full table in [`docs/todo.md`](docs/todo.md) §3.3), CI—see `docs/todo.md`.
 
 ---
 
@@ -47,6 +47,12 @@ Do these as the **immediate** slice of work; skip steps that are already satisfi
 1. **Data refresh cadence** — Full UFCStats fights scrape is **several hours** (~770 events + fights; README). Re-run after parser or schema changes; profiles after the fights file stabilizes.
 2. **Validation before tuning** — Log-loss and era knobs come **after** “train runs, predict runs, symmetry holds.”
 3. **Hardening** — Tests, pinned deps, post-event refresh story—after the model path is trusted.
+
+---
+
+## Side projects (low priority)
+
+- **ELO trajectory “never downtrend” scan** — Use recorded ELO trajectories (`build_elo(..., record_trajectories=True)`, `ELOModel.get_trajectory`) and analyze **concavity / segment slopes** (or simpler: consecutive fight-to-fight deltas) to flag fighters whose path in a weight class **never exhibits a downward trend** by whatever operational definition you choose (e.g. no strictly decreasing step between post-fight ELOs; or a minimum-career-length filter). Exploratory curiosity, not part of training or Phase 3 metrics. Implementation could live as a small script under `scripts/` reusing [`scripts/chart_elo_trajectory.py`](scripts/chart_elo_trajectory.py) plumbing.
 
 ---
 
@@ -129,6 +135,7 @@ Other flags: `--no-diagnose` (list missing URLs only), `--out-missing` (default 
 | Topic | Where |
 |--------|--------|
 | ELO tuning status, Kalman vs regression, next steps | [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md) |
+| Why layoffs **amplify** (not damp) the next ELO update — ADR-16 framing | [`docs/elo-kalman-layoff-philosophy.md`](docs/elo-kalman-layoff-philosophy.md) |
 | Full phased checklist, schemas, metrics | [`docs/todo.md`](docs/todo.md) |
 | Design and stage definitions | [`docs/architecture.md`](docs/architecture.md) |
 | Expected CSV filenames / loader behavior | [`src/pipeline.py`](src/pipeline.py) (`load_data`; tries `ufcstats_fights.csv` then legacy `tier1_ufcstats.csv`) |

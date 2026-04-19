@@ -11,7 +11,7 @@ Architecture responsibilities (Section 4):
 """
 from collections import defaultdict
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from ..config import ELOConfig
 from ..data.schema import (
@@ -104,10 +104,17 @@ class ELOModel:
         self._last_fight_global: Dict[str, Optional[date]] = defaultdict(_defaultdict_none)
         self._n_fights: Dict[Tuple[str, WeightClass], int] = defaultdict(int)
         self._best_tier: Dict[Tuple[str, WeightClass], DataTier] = {}
+        # Optional: (fighter_id, wc) -> [(fight_date, elo_after_fight, opponent_id), ...]
+        self._trajectories: Dict[Tuple[str, WeightClass], List[Tuple[date, float, str]]] = {}
+        self._record_trajectories: bool = False
 
     def __setstate__(self, state: dict) -> None:
         """Pickle migration: older models lack ``_last_fight_global``; backfill from per-division dates."""
         self.__dict__.update(state)
+        if "_trajectories" not in self.__dict__:
+            self._trajectories = {}
+        if "_record_trajectories" not in self.__dict__:
+            self._record_trajectories = False
         if "_last_fight_global" not in self.__dict__:
             g: Dict[str, Optional[date]] = defaultdict(_defaultdict_none)
             for (fid, _wc), d0 in list(self._last_fight.items()):
@@ -198,6 +205,7 @@ class ELOModel:
         profiles: Optional[Dict[str, FighterProfile]] = None,
         *,
         progress_every: int = 0,
+        record_trajectories: bool = False,
     ) -> None:
         """
         Process all fights in chronological order.
@@ -206,7 +214,15 @@ class ELOModel:
         Profiles are used only for pedigree-based cold starts.
 
         If *progress_every* > 0, print a line every N fights (and at start/end).
+
+        If *record_trajectories* is True, after each fight append
+        ``(fight_date, elo, opponent_fighter_id)`` for both corners in that bout's
+        weight class — see :meth:`get_trajectory` (Kalman mean after the update).
         """
+        self._record_trajectories = record_trajectories
+        if record_trajectories:
+            self._trajectories.clear()
+
         if profiles:
             n_prof = len(profiles)
             print(f"  [ELO] pedigree cold-start pass: {n_prof:,} profiles x divisions ...", flush=True)
@@ -222,6 +238,8 @@ class ELOModel:
 
         for i, fight in enumerate(fights, start=1):
             self._process_one(fight)
+            if self._record_trajectories:
+                self._append_trajectory_snapshots(fight)
             if progress_every > 0 and (i == 1 or i % progress_every == 0 or i == n):
                 pct = 100.0 * i / n
                 print(f"  [ELO] {i:,} / {n:,} fights ({pct:.1f}%)", flush=True)
@@ -275,6 +293,36 @@ class ELOModel:
             self._last_fight_global[fid] = fight.fight_date
             self._n_fights[key] += 1
             self._update_best_tier(key, fight.tier)
+
+    def _append_trajectory_snapshots(self, fight: FightRecord) -> None:
+        """Record post-fight Kalman ELO mean for both corners in this bout's weight class."""
+        wc = fight.weight_class
+        a_id, b_id = fight.fighter_a_id, fight.fighter_b_id
+        for fid, opponent_id in ((a_id, b_id), (b_id, a_id)):
+            if not fid:
+                continue
+            key = self._key(fid, wc)
+            st = self._states.get(key)
+            if st is None:
+                continue
+            if key not in self._trajectories:
+                self._trajectories[key] = []
+            self._trajectories[key].append((fight.fight_date, float(st.value), opponent_id or ""))
+
+    def get_trajectory(self, fighter_id: str, wc: WeightClass) -> List[Tuple[date, float, str]]:
+        """
+        Return chronological points for one fighter in one division.
+
+        Populated only if the last :meth:`process_fights` used ``record_trajectories=True``.
+        Each tuple is ``(fight_date, elo_after_fight, opponent_fighter_id)`` — ELO is the Kalman
+        mean immediately after that fight is processed.
+        """
+        key = self._key(fighter_id, wc)
+        return list(self._trajectories.get(key, ()))
+
+    def iter_trajectory_keys(self) -> Iterator[Tuple[str, WeightClass]]:
+        """Yield (fighter_id, weight_class) keys that have recorded trajectory points."""
+        yield from self._trajectories.keys()
 
     def _update_best_tier(self, key: Tuple[str, WeightClass], tier: DataTier) -> None:
         current = self._best_tier.get(key)

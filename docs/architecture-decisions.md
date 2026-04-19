@@ -80,7 +80,7 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 **Context.** Fight and profile CSVs and `model.pkl` are large and environment-specific.
 
-**Decision.** **`/data/`** and **`*.pkl`** remain **gitignored**. Operators keep authoritative copies locally; optional snapshots (e.g. under `data/Saved_Runs/`) are a **personal convention**, not part of version control.
+**Decision.** **`/data/`** and **`*.pkl`** remain **gitignored**. Operators keep authoritative copies locally; optional archives outside `data/` are a **personal convention**, not part of version control.
 
 **Consequences.** Reproducible collaboration assumes shared **code** and documented **refresh steps**, not committed raw exports.
 
@@ -166,6 +166,27 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 ---
 
+## ADR-16: Kalman gain amplifies post-layoff updates (fast-adjustment over name-retention)
+
+**Context.** With our Kalman filter, variance grows during idle time (`P_pred = P_prev + process_noise × days_idle`) and the applied ELO delta on the next fight is `K × classical_delta` with `K = P_pred / (P_pred + R)`. This means **longer layoffs → larger `K` → a bigger fraction of the classical Elo step lands**. A coherent alternative is the opposite: treat long layoffs as a reason to **damp** the next update (rusty performance is noisy evidence, prior might still be right). Both read "we don't know what happened in the interim" reasonably.
+
+We discussed the two directions explicitly, including which kinds of fighters each favors across a career (see [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md)):
+
+- **Damp on layoff** → rating sticky through gaps → model **favors names with history** (returning champs retain rating; rising stars credited slowly; faded legends degrade slowly).
+- **Amplify on layoff (our choice)** → stored rating treated as stale → model **favors whoever is currently performing** (returning fighter's result moves rating aggressively in either direction).
+
+**Decision.** Keep the standard Kalman geometry — **amplify** updates after long layoffs. A stale rating is a worse prior than a fresh in-cage result, and a handicapping model is more useful reacting to information than preserving legacy. Current knob values: **`kalman_process_noise = 0.0025`**/day, **`kalman_measurement_noise = 1.0`**, so e.g. `K ≈ 0.55` after 3 months idle, `K ≈ 0.66` after 12 months (roughly 45% damping vs 34% damping of the classical step with `P_prev ≈ 1`, `R = 1`). The full worked example and the scenario table live in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
+
+**Consequences.**
+
+- Single rusty return fights can move a rating substantially. That is by design.
+- Former champs who take multi-year gaps and then lose will drop out of the elite band quickly in the rating; we do not preserve "rings of honor."
+- Rising stars who win a signature fight after a short break are credited immediately.
+- Uncertainty grows but the **mean** does not decay toward 1500 during idle time — only `P` grows. Any desired "inactive fighters should drift lower in point ELO" behavior requires a separate change (explicit mean pull in `kalman_predict`, not just more process noise).
+- If future calibration shows we are overreacting to return fights, documented flip paths exist: couple `R` to idle time, cap `K` past a threshold, or add a mean pull toward a pool prior. See `elo-kalman-layoff-philosophy.md` §7.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
@@ -184,3 +205,4 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 | [`../TODO.md`](../TODO.md) | Current status, next work bout, gap-report commands |
 | [`validation-and-few-shot.md`](validation-and-few-shot.md) | Time holdout, grouped CV, few-shot / cold-start knobs |
 | [`elo-tuning-knobs.md`](elo-tuning-knobs.md) | What each ELO / Kalman parameter does when you change it |
+| [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md) | Why we amplify (not damp) ELO updates after a layoff — ADR-16 framing |

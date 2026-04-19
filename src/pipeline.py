@@ -42,7 +42,8 @@ from .model.regression import (
     CLASS_LABELS, MultinomialLogisticModel, N_CLASSES, encode_outcome,
 )
 from .confidence.intervals import (
-    compute_prediction_ci, effective_sample_size, format_prediction_table,
+    compute_prediction_ci, effective_sample_size, fit_bootstrap_coefficients,
+    format_prediction_table,
 )
 
 
@@ -78,6 +79,8 @@ class MMAPredictor:
         self._X_train: Optional[np.ndarray] = None
         self._y_train: Optional[np.ndarray] = None
         self._train_weights: Optional[np.ndarray] = None
+        #: (n_bootstrap_valid, N_CLASSES, n_features) from train-time refits; fast CIs at predict.
+        self._bootstrap_W: Optional[np.ndarray] = None
 
     # ------------------------------------------------------------------
     # Stage 1: Data loading
@@ -148,13 +151,25 @@ class MMAPredictor:
     # Stage 2: ELO construction
     # ------------------------------------------------------------------
 
-    def build_elo(self, *, elo_progress_every: int = 1000) -> "MMAPredictor":
-        """Build ELO ratings from all available fight history."""
+    def build_elo(
+        self,
+        *,
+        elo_progress_every: int = 1000,
+        record_trajectories: bool = False,
+    ) -> "MMAPredictor":
+        """
+        Build ELO ratings from all available fight history.
+
+        If ``record_trajectories`` is True, each bout appends a post-fight ELO point
+        per fighter in that weight class as ``(date, elo, opponent_fighter_id)``;
+        query via ``elo_model.get_trajectory(fid, wc)``.
+        """
         self.elo_model = ELOModel(self.config.elo)
         self.elo_model.process_fights(
             self.fights,
             self.profiles if self.profiles else None,
             progress_every=elo_progress_every,
+            record_trajectories=record_trajectories,
         )
         return self
 
@@ -282,6 +297,35 @@ class MMAPredictor:
             l2_lambda=self.config.model.l2_lambda,
         )
         self.regression.fit(self._X_train, self._y_train, verbose=True)
+
+        eff_n = effective_sample_size(self._train_weights)
+        self._bootstrap_W = None
+        if eff_n >= self.config.model.cauchy_fallback_threshold:
+            print(
+                "  [train] bootstrap resamples (store coefficient draws for prediction CIs) ...",
+                flush=True,
+            )
+            W_stack, n_valid = fit_bootstrap_coefficients(
+                self._X_train,
+                self._y_train,
+                self._train_weights,
+                self.config.model,
+                progress_every=40,
+            )
+            if n_valid >= 10:
+                self._bootstrap_W = W_stack
+                print(
+                    f"  [train] stored {n_valid} bootstrap coefficient matrices "
+                    f"(fast CIs at predict; no per-fight refit).",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  [train] only {n_valid} valid bootstrap fits (< 10); "
+                    "prediction CIs will use Cauchy or legacy bootstrap.",
+                    flush=True,
+                )
+
         return self
 
     # ------------------------------------------------------------------
@@ -342,17 +386,33 @@ class MMAPredictor:
         point_est = self.regression.predict_proba(x)
 
         eff_n = effective_sample_size(self._train_weights)
-        bootstrap_progress_every = 40 if verbose else 0
-        if verbose and eff_n >= self.config.model.cauchy_fallback_threshold:
-            prog = (
-                f", status every {bootstrap_progress_every} resamples"
-                if bootstrap_progress_every
-                else ""
-            )
-            print(
-                f"  [predict] bootstrap CIs ({self.config.model.n_bootstrap} resamples{prog}) ...",
-                flush=True,
-            )
+        bootstrap_W = getattr(self, "_bootstrap_W", None)
+        use_stored = (
+            bootstrap_W is not None
+            and bootstrap_W.size > 0
+            and bootstrap_W.shape[0] >= 10
+        )
+        bootstrap_progress_every = 0 if use_stored else (40 if verbose else 0)
+        if verbose:
+            if use_stored:
+                print(
+                    f"  [predict] CIs from {bootstrap_W.shape[0]} stored bootstrap draws (no refit) ...",
+                    flush=True,
+                )
+            elif (
+                eff_n >= self.config.model.cauchy_fallback_threshold
+                and self._X_train is not None
+            ):
+                prog = (
+                    f", status every {bootstrap_progress_every} resamples"
+                    if bootstrap_progress_every
+                    else ""
+                )
+                print(
+                    f"  [predict] bootstrap CIs ({self.config.model.n_bootstrap} resamples{prog}) "
+                    "(legacy path; retrain to cache draws) ...",
+                    flush=True,
+                )
         lower, upper, ci_method = compute_prediction_ci(
             x=x,
             point_estimate=point_est,
@@ -361,6 +421,7 @@ class MMAPredictor:
             train_weights=self._train_weights,
             effective_n=eff_n,
             config=self.config.model,
+            bootstrap_W=bootstrap_W,
             bootstrap_progress_every=bootstrap_progress_every,
         )
 
@@ -443,6 +504,15 @@ class MMAPredictor:
         """Serialise the fitted predictor to a pickle file."""
         with open(path, "wb") as f:
             pickle.dump(self, f)
+
+    def __getstate__(self) -> dict:
+        return self.__dict__.copy()
+
+    def __setstate__(self, state: dict) -> None:
+        """Pickle migration: older ``model.pkl`` files lack ``_bootstrap_W``."""
+        self.__dict__.update(state)
+        if "_bootstrap_W" not in self.__dict__:
+            self._bootstrap_W = None
 
     @classmethod
     def load(cls, path: Path) -> "MMAPredictor":

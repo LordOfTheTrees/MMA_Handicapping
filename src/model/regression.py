@@ -183,7 +183,7 @@ class MultinomialLogisticModel:
         self,
         X: np.ndarray,
         y: np.ndarray,
-        max_iter: int = 2000,
+        max_iter: int = 3000,
         *,
         verbose: bool = False,
     ) -> "MultinomialLogisticModel":

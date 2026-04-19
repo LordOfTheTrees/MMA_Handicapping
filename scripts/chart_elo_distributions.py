@@ -7,7 +7,11 @@ Uses the same pipeline as training but stops after ``build_elo``. Point ELO is
 
 Usage (repo root)::
 
-    python scripts/chart_elo_distributions.py --data-dir ./data --out elo_by_division.png --top-n 15
+    python scripts/chart_elo_distributions.py --data-dir ./data --top-n 15
+
+Default output is ``data/elo_by_division.png``. Any existing file at that path is **removed**
+before writing so ``data/`` never keeps a stale chart (copy the PNG aside first if you want
+to keep it). Override with ``--out``.
 """
 from __future__ import annotations
 
@@ -94,7 +98,12 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description="Histogram ELO by weight class")
     ap.add_argument("--data-dir", type=Path, default=ROOT / "data")
-    ap.add_argument("--out", type=Path, default=ROOT / "elo_by_division.png")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=ROOT / "data" / "elo_by_division.png",
+        help="PNG path (default: data/elo_by_division.png under repo root; overwrites)",
+    )
     ap.add_argument("--as-of", type=str, default=None, help="YYYY-MM-DD (default: today)")
     ap.add_argument("--elo-progress-every", type=int, default=2000)
     ap.add_argument("--min-fighters", type=int, default=2, help="Skip panels with fewer fighters")
@@ -205,9 +214,16 @@ def main() -> int:
     fig.tight_layout()
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    had_existing = out.is_file()
+    if had_existing:
+        try:
+            out.unlink()
+        except OSError as exc:
+            print(f"  [warn] could not remove existing file (may be open elsewhere): {exc}", flush=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"\nWrote {out.resolve()}", flush=True)
+    verb = "Overwrote" if had_existing else "Wrote"
+    print(f"\n{verb} {out.resolve()}", flush=True)
     return 0
 
 

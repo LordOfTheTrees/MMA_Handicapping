@@ -12,7 +12,7 @@ from typing import Dict
 @dataclass
 class ELOConfig:
     # ELO tuning: k_base and logistic_divisor (see docs/elo-tuning-knobs.md).
-    k_base: float = 60.0
+    k_base: float = 100.0
     logistic_divisor: float = 300.0
     initial_elo: float = 1500.0
 
@@ -26,7 +26,7 @@ class ELOConfig:
     })
 
     # Kalman process noise: ELO variance added per day of inactivity
-    kalman_process_noise: float = 0.10
+    kalman_process_noise: float = 0.0025
 
     # Kalman measurement noise: variance scale for each fight observation
     kalman_measurement_noise: float = 1.0
@@ -48,8 +48,12 @@ class FeatureConfig:
 @dataclass
 class ModelConfig:
     # Bootstrap resamples for CI computation (each refits on the training set).
-    # Lower default keeps ``predict``/``explain`` responsive; raise for tighter CIs.
+    # Refits run once at ``train`` time; ``predict`` applies stored draws only.
+    # Lower default keeps training time reasonable; raise for tighter CIs.
     n_bootstrap: int = 200
+
+    # RNG seed for weighted bootstrap resamples (reproducible CIs after retrain).
+    bootstrap_seed: int = 42
 
     # Two-sided confidence level for intervals (0.05 → 95% CI).
     ci_alpha: float = 0.05

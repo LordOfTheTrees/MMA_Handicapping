@@ -133,6 +133,7 @@ Fighter parameters are not stationary — a fighter observed last month is bette
 
 - **Uncertainty grows** with time elapsed since the fighter's **last professional fight in any weight class**. ELO means and updates remain **per division**, but the time-update before a bout uses a **global** layoff clock: a training camp and a cage appearance at another weight still mean we have a recent observation of the athlete, so uncertainty should not stay artificially tight in one division while they were active elsewhere. (See [`architecture-decisions.md`](architecture-decisions.md) **ADR-15**.)
 - **Uncertainty shrinks** with each new observation. The quality of that observation — already encoded in the K-factor scaling — determines how much the uncertainty contracts.
+- **Layoff direction (ADR-16).** Standard Kalman gain (`K = P / (P + R)`) is retained: longer idle time → larger `P` → **larger** fraction of the classical ELO step is applied on the next fight. We chose this **fast-adjustment** behavior over a **damp-on-layoff** alternative because a stale stored rating is a worse prior than a fresh cage result; the tradeoff and the rejected alternative are written up in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
 
 No further assumptions are made about the mechanics of parameter change. There are no aging curves, no durability decay functions, no career stage priors. The data determines uncertainty through observation frequency and quality alone.
 
@@ -269,13 +270,12 @@ Confidence intervals communicate what the model does not know. They widen automa
 
 ### 8.2 Primary Method: Bootstrap
 
-When sufficient recent reference data exists, confidence intervals are computed via percentile bootstrap:
+When sufficient recent reference data exists, confidence intervals are computed via percentile bootstrap on the **softmax probabilities** implied by bootstrap draws of the coefficient matrix:
 
-1. Compute the prediction from the regression using point estimates of all features
-2. Bootstrap resample the training observations weighted by recency and ELO quality weighting
-3. Refit coefficient estimates on each resample
-4. Propagate coefficient uncertainty through the softmax via delta method
-5. Report percentile intervals across bootstrap replicates
+1. At **train** time: weighted bootstrap resamples of the training matrix (recency weights), refit the multinomial model on each resample, and **store** the resulting coefficient matrices on the saved predictor.
+2. At **predict** time: for the current feature vector `x`, evaluate `softmax(W_b x)` for each stored draw `W_b` (no refit). Report percentile intervals across those probability vectors.
+
+Older `model.pkl` files without stored draws fall back to refitting on each `predict` call until retrained.
 
 CI width emerges naturally from the effective sample size, the consistency of outcomes in similar historical matchups, and the era composition of the reference data.
 
@@ -333,12 +333,12 @@ Reference: 6 similar fights | Mixed eras | ⚠ Interpret with caution
 
 ## 10. Open Design Questions
 
-The following parameters require empirical tuning against holdout prediction performance and are not specified a priori:
+The following parameters require **empirical tuning against holdout prediction performance** (Phase 3) and are not specified a priori. The **authoritative Phase 3 inventory** — including the **2013-class `era_cutoff_year` boundary**, **all ELO levers**, **train/holdout split** (once implemented), and **model thresholds/weights** — lives in [`docs/todo.md`](docs/todo.md) §**3.3 Phase 3 tuning inventory**.
 
-- Exact era cutoff year for regression training data
-- K-factor base value
-- Cross-promotion ELO discount by tier
-- Recency decay rate (λ) for feature aggregation
-- Kalman process noise specification (time-to-uncertainty growth rate)
-- Bootstrap effective sample threshold for Cauchy fallback trigger
-- Minimum UFC fight count before style axes are considered well-estimated
+Summary (see §3.3 for the full table):
+
+- **`era_cutoff_year`** (default 2013): regression-era floor; tune on holdout, not fixed forever.
+- **Holdout window** / train–test split parameters (to be added to the pipeline).
+- **ELO:** `k_base`, `logistic_divisor`, `tier_discount`, Kalman noises, `_K_SCALE` method multipliers.
+- **Features:** `recency_decay_rate`, `min_fights_style_estimate`.
+- **Regression / CIs:** `l2_lambda`, `huber_delta`, `n_bootstrap`, `ci_alpha`, Cauchy threshold/scale, bootstrap seed.

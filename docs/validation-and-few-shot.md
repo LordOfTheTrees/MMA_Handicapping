@@ -79,8 +79,15 @@ The codebase is already oriented toward **data-sparse fighters**:
 
 ---
 
+## Phase 3 tuning (when you reach holdout validation)
+
+All items to tune **against holdout log-loss / calibration** — including the **`era_cutoff_year` (≈2013) regression boundary**, **ELO knobs**, **train/test split parameters**, and **thresholds/weights** (`l2_lambda`, Cauchy, bootstrap, recency λ, etc.) — are listed in **[`docs/todo.md`](todo.md) §3.3** (“Phase 3 tuning inventory”). Treat that section as the checklist; this file stays focused on **split protocol** (time holdout, grouped CV) and few-shot behavior.
+
+---
+
 ## See also
 
 - [`TODO.md`](../TODO.md) — ordered “next work bout”
-- [`docs/todo.md`](todo.md) — Phase 2.2 symmetry snippet, Phase 3 holdout outline
+- [`docs/todo.md`](todo.md) — Phase 2.2 symmetry snippet, **Phase 3 §3.1–3.3** (holdout + full tuning inventory)
+- [`docs/architecture.md`](architecture.md) §10 — open parameters, pointer to §3.3
 - [`docs/architecture-decisions.md`](architecture-decisions.md) — scraper / pipeline product decisions
