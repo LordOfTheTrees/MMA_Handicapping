@@ -356,10 +356,10 @@ def sort_fights_chronologically(fights: List[FightRecord]) -> List[FightRecord]:
 
 
 def filter_tier1_post_era(
-    fights: List[FightRecord], era_cutoff_year: int
+    fights: List[FightRecord], master_start_year: int
 ) -> List[FightRecord]:
-    """Return only Tier 1 fights on or after the era cutoff year."""
+    """Return only Tier 1 fights on or after ``Config.master_start_year`` (inclusive)."""
     return [
         f for f in fights
-        if f.tier == DataTier.TIER_1 and f.fight_date.year >= era_cutoff_year
+        if f.tier == DataTier.TIER_1 and f.fight_date.year >= master_start_year
     ]

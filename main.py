@@ -12,7 +12,9 @@ explain Show the exact additive decomposition of a prediction's log-odds.
 Usage
 -----
     python main.py train --data-dir ./data [--model-path model.pkl]
+    python main.py train --data-dir ./data --holdout-start 2023-01-01
     python main.py train --data-dir ./data --full-rebuild
+    python main.py eval-holdout
     python main.py predict <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
     python main.py explain <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
 
@@ -113,6 +115,8 @@ def cmd_train(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     config = Config()
+    if getattr(args, "holdout_start", None):
+        config.holdout_start_date = resolve_date(args.holdout_start)
     predictor = MMAPredictor(config)
 
     print(f"Stage 1: Loading data from {data_dir} ...")
@@ -132,6 +136,30 @@ def cmd_train(args: argparse.Namespace) -> None:
     print(f"Saving model -> {model_path}")
     predictor.save(model_path)
     print("Done.\n")
+
+
+def cmd_eval_holdout(args: argparse.Namespace) -> None:
+    mp = getattr(args, "eval_model_path", None) or args.model_path
+    predictor = _load_or_exit(Path(mp))
+    if predictor.config.holdout_start_date is None:
+        print(
+            "This model has holdout_start_date=None (trained without a holdout cut).\n"
+            "Re-train with:  python main.py train --data-dir ./data "
+            "--holdout-start YYYY-MM-DD",
+        )
+        sys.exit(1)
+    from src.eval.holdout_metrics import run_holdout_eval
+
+    n, ll, brier, acc = run_holdout_eval(predictor)
+    hsd = predictor.config.holdout_start_date
+    print(f"\nHoldout evaluation  (fight_date >= {hsd})")
+    print(f"  Tier-1 decisive fights (A perspective): {n:,}")
+    if n == 0:
+        print("  No rows to score. Check holdout_start_date vs data.")
+        return
+    print(f"  Mean log-loss: {ll:.4f}")
+    print(f"  Mean Brier:    {brier:.4f}")
+    print(f"  Accuracy:      {acc:.2%}\n")
 
 
 def cmd_predict(args: argparse.Namespace) -> None:
@@ -201,6 +229,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Call refresh_data() first to repopulate CSVs, then train (see src/data/refresh.py)",
     )
+    p_train.add_argument(
+        "--holdout-start",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Exclude Tier-1 fights on/after this date from regression training (saved in model for eval-holdout)",
+    )
+
+    p_eval = sub.add_parser(
+        "eval-holdout",
+        help="Mean log-loss, Brier, accuracy on holdout (requires train --holdout-start)",
+    )
+    p_eval.add_argument(
+        "--model-path",
+        dest="eval_model_path",
+        default=None,
+        metavar="PATH",
+        help="Model pickle (overrides top-level --model-path if set)",
+    )
 
     # predict
     p_pred = sub.add_parser("predict", help="Predict fight outcome probabilities")
@@ -234,8 +280,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dispatch = {
-        "train":   cmd_train,
-        "predict": cmd_predict,
-        "explain": cmd_explain,
+        "train":        cmd_train,
+        "eval-holdout": cmd_eval_holdout,
+        "predict":      cmd_predict,
+        "explain":      cmd_explain,
     }
     dispatch[args.command](args)

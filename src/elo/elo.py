@@ -366,6 +366,17 @@ class ELOModel:
             primary_tier=self._best_tier.get(key, DataTier.TIER_3),
         )
 
+    def days_since_last_fight_global(self, fighter_id: str, as_of_date: date) -> int:
+        """
+        Calendar days from last bout **any** division to ``as_of_date`` (inclusive floor).
+
+        Used for Cauchy ELO MC **γ** (ADR-19). Debutants (no recorded fight) → ``0``.
+        """
+        last = self._last_fight_global[fighter_id]
+        if last is None:
+            return 0
+        return max(0, (as_of_date - last).days)
+
     def get_elo(
         self,
         fighter_id: str,

@@ -62,7 +62,7 @@ Same rating **gap** implies a **steeper** win-expectancy curve if you **lower** 
 
 ---
 
-## 5. `kalman_process_noise` (default `0.0025` per **day** of inactivity; was `0.01`, then `0.10`, originally `0.05`)
+## 5. `kalman_process_noise` (default `0.01` per **day** of inactivity; was `0.0025`, earlier `0.10`, originally `0.05`)
 
 **Role:** Before each fight, variance grows: `P += process_noise * days_since_last_fight` ([`kalman_predict`](../src/elo/kalman.py)). **Days** are since the fighter's last bout **in any weight class** (global layoff clock; [`architecture.md`](architecture.md) §4.5, **ADR-15**).
 
@@ -92,14 +92,14 @@ Interact with **P** (layoff-inflated or not): after a long layoff, **P** is big,
 
 ## 7. `tier_discount` (cross-promotion)
 
-**Role:** When bringing in outside promotion ELO (`transfer_from_tier`), how much of the gap above 1500 is kept.
+**Role:** When bringing in outside promotion ELO (`transfer_from_tier` in [`elo.py`](../src/elo/elo.py)), how much of the gap above 1500 is kept.
 
 | Change | Effect |
 |--------|--------|
 | **Lower discounts** | Outside records **pull UFC ELO less**; more **regression toward 1500** when entering UFC. |
 | **Higher discounts** | Outside strength **transfers more**; faster differentiation for imports. |
 
-Mostly affects fighters with **Tier 2/3** history, not pure UFCStats-only paths.
+**Data vs code:** Tier **2/3** fights appear in memory only if you ship `tier2_*.csv` / `tier3_sherdog.csv` under `data/` (see [`pipeline.load_data`](../src/pipeline.py)). UFCStats rows are always **Tier 1**. **`transfer_from_tier` is not called from the pipeline today**, so `tier_discount` affects nothing until that hook is wired; non-UFC bouts still update ELO through normal fight processing when those CSVs are present.
 
 ---
 
@@ -108,7 +108,7 @@ Mostly affects fighters with **Tier 2/3** history, not pure UFCStats-only paths.
 1. **`k_base`** — “ratings should move more / less.” (**Now 100.**)  
 2. **`logistic_divisor`** — “what does +100 ELO **mean** in win %?” (**Now 300.**)  
 3. **`_K_SCALE`** — how much **method** vs **opponent surprise** drives steps. (**KO/submission** multipliers **1.5**.)  
-4. **Kalman `R` and process noise** — **smoothing vs reactivity** and **uncertainty** bands. (**Process noise** **0.0025**/day.)
+4. **Kalman `R` and process noise** — **smoothing vs reactivity** and **uncertainty** bands. (**Process noise** **0.01**/day.)
 
 ---
 

@@ -3,10 +3,13 @@ Tunable model parameters.
 
 All values here are empirically adjustable against holdout prediction
 performance. Defaults are principled starting points, not final specs.
-See docs/architecture.md Section 10 for the full list of open design questions.
+The regression calendar floor is ``Config.master_start_year`` (single source of truth).
+See docs/architecture.md Section 10 and docs/todo.md §3.3 for the full tuning inventory.
 """
+import math
 from dataclasses import dataclass, field
-from typing import Dict
+from datetime import date
+from typing import Dict, Optional
 
 
 @dataclass
@@ -26,7 +29,7 @@ class ELOConfig:
     })
 
     # Kalman process noise: ELO variance added per day of inactivity
-    kalman_process_noise: float = 0.0025
+    kalman_process_noise: float = 0.01
 
     # Kalman measurement noise: variance scale for each fight observation
     kalman_measurement_noise: float = 1.0
@@ -41,9 +44,6 @@ class FeatureConfig:
     # Minimum ELO-weighted effective fights before style axes leave cold-start blending.
     min_fights_style_estimate: int = 3
 
-    # Only Tier 1 fights from this year onward enter the regression training set.
-    era_cutoff_year: int = 2013
-
 
 @dataclass
 class ModelConfig:
@@ -55,8 +55,8 @@ class ModelConfig:
     # RNG seed for weighted bootstrap resamples (reproducible CIs after retrain).
     bootstrap_seed: int = 42
 
-    # Two-sided confidence level for intervals (0.05 → 95% CI).
-    ci_alpha: float = 0.05
+    # Two-sided confidence level for intervals (0.10 → 90% CI).
+    ci_alpha: float = 0.10
 
     # Effective sample size below which Cauchy fallback triggers instead of bootstrap.
     cauchy_fallback_threshold: int = 20
@@ -64,11 +64,35 @@ class ModelConfig:
     # Cauchy scale parameter used in the fallback CI.
     cauchy_scale: float = 0.15
 
+    # --- Cauchy ELO Monte Carlo (prediction-time; independent ε_a, ε_b per draw) ---
+    # For each corner, ε ~ Cauchy(0, γ) in **ELO points**, then elo_draw = μ + ε.
+    # γ grows with calendar idle (global last fight → predict date); cap at elo_mc_gamma_max.
+    # Formula (idle_years = max(0, days_idle) / 365.25):
+    #   γ = min(elo_mc_gamma_max,
+    #           elo_mc_gamma_min + elo_mc_gamma_slope_sqrt_year * sqrt(idle_years))
+    # Wider intervals when idle is long: larger γ ⇒ fatter Cauchy tails. Not the same as
+    # training row recency weights (see ADR-18 / ADR-19).
+    elo_mc_n_draws: int = 200
+    elo_mc_gamma_min: float = 5.0
+    elo_mc_gamma_slope_sqrt_year: float = 25.0
+    elo_mc_gamma_max: float = 120.0
+
     # Huber delta for the robust loss function (transition from quadratic to linear).
     huber_delta: float = 1.35
 
     # L2 regularization weight on regression coefficients.
     l2_lambda: float = 1e-4
+
+    def elo_mc_gamma_for_days_idle(self, days_idle: int) -> float:
+        """
+        Cauchy scale **γ** for one corner given calendar days since last fight (any division).
+
+        ``idle_years = max(0, days_idle) / 365.25``;
+        ``γ = min(elo_mc_gamma_max, elo_mc_gamma_min + elo_mc_gamma_slope_sqrt_year * sqrt(idle_years))``.
+        """
+        idle_years = max(0.0, float(days_idle)) / 365.25
+        g = self.elo_mc_gamma_min + self.elo_mc_gamma_slope_sqrt_year * math.sqrt(idle_years)
+        return min(self.elo_mc_gamma_max, g)
 
 
 @dataclass
@@ -76,3 +100,13 @@ class Config:
     elo: ELOConfig = field(default_factory=ELOConfig)
     features: FeatureConfig = field(default_factory=FeatureConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+
+    #: Single calendar floor for **Tier-1 regression training** (inclusive) and for the
+    #: first **expanding walk-forward** training year. Change here only — do not duplicate
+    #: year cutoffs elsewhere. ELO construction still uses full fight history.
+    master_start_year: int = 2005
+
+    #: If set, Tier-1 fights with ``fight_date >= holdout_start_date`` are **excluded**
+    #: from multinomial **training** only (Phase 3 evaluation slice). ELO is still built on
+    #: full history. Use ``main.py train --holdout-start`` or set in code before training.
+    holdout_start_date: Optional[date] = None

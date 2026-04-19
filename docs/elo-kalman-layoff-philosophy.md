@@ -44,21 +44,21 @@ Longer idle → bigger `P_pred` → larger `K` → larger fraction of the classi
 
 ## 3. Worked example (current behavior)
 
-Using `kalman_process_noise = 0.0025`, `kalman_measurement_noise = 1.0`, and a steady-state `P_prev ≈ 1.0`:
+Using `kalman_process_noise = 0.01`, `kalman_measurement_noise = 1.0`, and a steady-state `P_prev ≈ 1.0`:
 
 ```
-P_pred(3 months idle)  = 1.0 + 0.0025 × 90   = 1.225   → K ≈ 0.551
-P_pred(12 months idle) = 1.0 + 0.0025 × 365  = 1.9125 → K ≈ 0.657
+P_pred(3 months idle)  = 1.0 + 0.01 × 90   = 1.90   → K ≈ 0.655
+P_pred(12 months idle) = 1.0 + 0.01 × 365  = 4.65  → K ≈ 0.823
 ```
 
 Take a favorite vs. underdog matchup with classical Elo steps of **+31.7 / −31.7** on an expected win, or **−68.3 / +68.3** on the upset (same illustrative gap as before, scaled to **`k_base` = 100** vs 60; exact steps depend on ELO gap, `logistic_divisor`, and method scale).
 
 | Scenario | Higher-Elo fighter | Lower-Elo fighter |
 |---|---|---|
-| Higher (1 yr off) **wins**, Lower (3 mo off) loses | +20.8 (0.657 × +31.7) | −17.5 (0.551 × −31.7) |
-| Higher (3 mo off) **wins**, Lower (1 yr off) loses | +17.5 (0.551 × +31.7) | −20.8 (0.657 × −31.7) |
-| Higher (1 yr off) **loses**, Lower (3 mo off) wins (upset) | −44.9 (0.657 × −68.3) | +37.6 (0.551 × +68.3) |
-| Higher (3 mo off) **loses**, Lower (1 yr off) wins (upset) | −37.6 (0.551 × −68.3) | +44.9 (0.657 × +68.3) |
+| Higher (1 yr off) **wins**, Lower (3 mo off) loses | +26.1 (0.823 × +31.7) | −20.8 (0.655 × −31.7) |
+| Higher (3 mo off) **wins**, Lower (1 yr off) loses | +20.8 (0.655 × +31.7) | −26.1 (0.823 × −31.7) |
+| Higher (1 yr off) **loses**, Lower (3 mo off) wins (upset) | −56.2 (0.823 × −68.3) | +44.8 (0.655 × +68.3) |
+| Higher (3 mo off) **loses**, Lower (1 yr off) wins (upset) | −44.8 (0.655 × −68.3) | +56.2 (0.823 × +68.3) |
 
 The **longer-idle side** always gets the **larger fraction** of the classical step on the next fight. That is the "amplify on return" behavior, seen in numbers.
 
@@ -84,7 +84,7 @@ The **longer-idle side** always gets the **larger fraction** of the classical st
 
 ## 6. What the current knobs actually control
 
-- **`kalman_process_noise`** (currently **0.0025/day**) — how quickly variance grows during idle time. Bigger value → more amplification of the return-fight update.
+- **`kalman_process_noise`** (currently **0.01/day**) — how quickly variance grows during idle time. Bigger value → more amplification of the return-fight update.
 - **`kalman_measurement_noise`** (currently **1.0**) — the denominator brake on gain. Bigger value would pull K back down and **damp** updates universally, not just after layoffs.
 - **`k_base`** (currently **100**) and **`_K_SCALE`** (KO/sub **×1.5**) — set the size of the classical step that `K` then scales.
 

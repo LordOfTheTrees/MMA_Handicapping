@@ -14,7 +14,7 @@ For **knob semantics** (what each parameter does when you change it), see [`elo-
 | **`k_base`** | **100** — scales classical ELO deltas (after method multiplier). |
 | **`logistic_divisor`** | **300** in `ELOConfig`, threaded into `expected_score` / `elo_delta` (steeper win-expectancy vs rating gap than the old hardcoded 400). |
 | **Finish multipliers** | **KO/TKO** and **submission** both **×1.5** on `k_base`; unanimous decision **×1.0**; split/majority **×0.5**; draw / NC / DQ **×0**. |
-| **Kalman process noise** | **0.0025** variance per **day** of global inactivity (stronger damping vs **0.01** / **0.10**; original baseline was **0.05**). |
+| **Kalman process noise** | **0.01** variance per **day** of global inactivity (was **0.0025**; original exploration included **0.05** / **0.10**). |
 | **Global layoff clock (ADR-15)** | `kalman_predict` before a bout uses days since the fighter’s **last fight in any division**; per-division `last_fight_date` on `ELOState` remains “last bout in this class.” |
 | **Draw / NC / DQ** | No ELO delta; clock and division bookkeeping still advance. |
 | **Validation tooling** | [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — histograms by division, summary stats, **`--top-n`** ranked tables; default chart **`data/elo_by_division.png`**. |

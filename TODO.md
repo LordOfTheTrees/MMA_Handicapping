@@ -26,7 +26,7 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 **Not the focus yet (optional / later):**
 
-- Tier 2–3 promotion CSVs, pedigree manual fill, **Phase 3 holdout tuning** (`era_cutoff_year` / **2013 boundary**, ELO levers, train–test split, thresholds/weights — full table in [`docs/todo.md`](docs/todo.md) §3.3), CI—see `docs/todo.md`.
+- Tier 2–3 promotion CSVs, pedigree manual fill, **Phase 3 holdout tuning** (knob inventory [`docs/todo.md`](docs/todo.md) §3.3; **iteration loop** §3.4), CI / `elo_mc_*` notes in the same doc.
 
 ---
 
@@ -39,6 +39,16 @@ Do these as the **immediate** slice of work; skip steps that are already satisfi
 3. **Phase 2 smoke test** — `python main.py train --data-dir ./data`: confirm loaded fight/profile counts, training size, no broken features. One **`predict`** and one **`explain`** with real `fighter_id`s from your CSVs (`docs/todo.md` §2.1).
 4. **Quick gates** — Symmetry (swap A/B) and a light ELO sniff test (`docs/todo.md` §2.2–2.3).
 5. **Then** — Phase 3 (holdout, calibration, knob tuning) only after the smoke test is boringly stable.
+
+### Phase 3 — iterative tuning (start here)
+
+Use **repeated model generations**: same **`--holdout-start`**, change **one hyperparameter** in [`src/config.py`](src/config.py), retrain with a **unique `--model-path`**, run **`eval-holdout`**, log metrics. Full protocol, rules of thumb, and optional walk-forward: **[`docs/todo.md`](docs/todo.md) §3.4**.
+
+```bash
+# Example generation (replace date and paths with your locked holdout and naming scheme)
+python main.py train --data-dir ./data --holdout-start 2023-01-01 --model-path ./data/Saved_Runs/phase3_baseline.pkl
+python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
+```
 
 ---
 

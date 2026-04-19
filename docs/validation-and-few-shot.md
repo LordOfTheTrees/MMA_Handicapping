@@ -7,8 +7,8 @@ This note complements [`todo.md`](todo.md) Phase 2–3 and [`architecture.md`](a
 ## What you have today
 
 - **Many fight rows**, but **fighters repeat** across rows. A random **IID K-fold on fights** leaks information: the same athlete appears in train and validation, so metrics look better than deployment.
-- The **regression** is fit on **post-era** UFC fights only (`FeatureConfig.era_cutoff_year`, default **2013**). **ELO** and style axes use **full history** before each fight date (lookahead-free in training rows).
-- **Training rows** currently use **all** post-era decisive outcomes (no holdout split in code yet). Phase 3 in [`todo.md`](todo.md) adds an explicit holdout.
+- The **regression** is fit on Tier-1 fights with `fight_date.year >= Config.master_start_year` (default **2005**; tune on holdout). **ELO** and style axes use **full history** before each fight date (lookahead-free in training rows).
+- **Training rows** exclude dates on/after **`Config.holdout_start_date`** when set (see [`todo.md`](todo.md) §3.1, `main.py train --holdout-start`).
 
 ---
 
@@ -36,7 +36,7 @@ Pure **event** grouping is weaker (same fighter can appear in train and val on d
 ### 3. What to avoid
 
 - **IID row shuffle** across all UFC fights.
-- Validating on the same era you tuned **era_cutoff_year** on without a nested outer split (double-dipping).
+- Validating on the same era you tuned **`master_start_year`** on without a nested outer split (double-dipping).
 
 ---
 
@@ -81,7 +81,7 @@ The codebase is already oriented toward **data-sparse fighters**:
 
 ## Phase 3 tuning (when you reach holdout validation)
 
-All items to tune **against holdout log-loss / calibration** — including the **`era_cutoff_year` (≈2013) regression boundary**, **ELO knobs**, **train/test split parameters**, and **thresholds/weights** (`l2_lambda`, Cauchy, bootstrap, recency λ, etc.) — are listed in **[`docs/todo.md`](todo.md) §3.3** (“Phase 3 tuning inventory”). Treat that section as the checklist; this file stays focused on **split protocol** (time holdout, grouped CV) and few-shot behavior.
+All items to tune **against holdout log-loss / calibration** — including **`Config.master_start_year`** (regression calendar floor), **ELO knobs**, **train/test split parameters**, and **thresholds/weights** (`l2_lambda`, Cauchy, bootstrap, recency λ, etc.) — are listed in **[`docs/todo.md`](todo.md) §3.3** (“Phase 3 tuning inventory”). Treat that section as the checklist; this file stays focused on **split protocol** (time holdout, grouped CV) and few-shot behavior.
 
 ---
 

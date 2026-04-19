@@ -14,9 +14,16 @@ Two methods (architecture Section 8):
 
   Cauchy (fallback):
     Heavy-tailed conservative interval making no distributional assumptions.
-    Used when reference class data is sparse or fighter is poorly observed.
+    Used when reference class data is sparse, bootstrap is unavailable, or
+    ``force_cauchy_wc_debut`` applies (see ``compute_prediction_ci``).
 
-The choice is automatic based on effective sample size after weighting.
+  Cauchy ELO Monte Carlo (ADR-19):
+    Independent Cauchy shocks in ELO points per corner perturb ``elo_differential``
+    before ``softmax(Wx)``. When stored bootstrap ``W`` exists, each MC draw
+    cycles coefficient rows so coefficient and ELO uncertainty both appear.
+
+The choice is automatic based on effective sample size after weighting and
+optional weight-class debut routing in ``MMAPredictor.predict``.
 """
 import numpy as np
 from scipy.stats import cauchy
@@ -118,6 +125,60 @@ def _softmax_rows(logits: np.ndarray) -> np.ndarray:
     return ex / np.sum(ex, axis=1, keepdims=True)
 
 
+def _softmax_vec(logits: np.ndarray) -> np.ndarray:
+    """Stable softmax for a single logit vector (N_CLASSES,)."""
+    m = float(np.max(logits))
+    ex = np.exp(logits - m)
+    s = float(ex.sum())
+    return ex / s if s > 0 else np.full_like(logits, 1.0 / len(logits))
+
+
+def elo_mc_percentile_ci(
+    x: np.ndarray,
+    W_stack: np.ndarray,
+    gamma_a: float,
+    gamma_b: float,
+    n_mc: int,
+    alpha: float,
+    rng: np.random.Generator,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Percentile CIs from ``n_mc`` draws: cycle rows of ``W_stack``, independent
+    ``Cauchy(0, γ_a)`` / ``Cauchy(0, γ_b)`` shocks on ELO (feature 0 only).
+    """
+    if n_mc < 1:
+        raise ValueError("n_mc must be >= 1")
+    B = W_stack.shape[0]
+    probs = np.empty((n_mc, N_CLASSES), dtype=float)
+    for k in range(n_mc):
+        W = W_stack[k % B]
+        ea = float(rng.standard_cauchy() * gamma_a)
+        eb = float(rng.standard_cauchy() * gamma_b)
+        x2 = x.copy()
+        x2[0] += ea - eb
+        logits = W @ x2
+        probs[k] = _softmax_vec(logits)
+    lower = np.percentile(probs, 100.0 * alpha / 2.0, axis=0)
+    upper = np.percentile(probs, 100.0 * (1.0 - alpha / 2.0), axis=0)
+    return lower, upper
+
+
+def point_W_elo_mc_ci(
+    x: np.ndarray,
+    W_point: np.ndarray,
+    gamma_a: float,
+    gamma_b: float,
+    n_mc: int,
+    alpha: float,
+    rng: np.random.Generator,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """ELO MC only (fixed point estimate coefficients ``W_point``)."""
+    W_stack = W_point.reshape(1, *W_point.shape)
+    return elo_mc_percentile_ci(
+        x, W_stack, gamma_a, gamma_b, n_mc, alpha, rng,
+    )
+
+
 def bootstrap_ci_from_stored_W(
     x: np.ndarray,
     W_stack: np.ndarray,
@@ -149,6 +210,8 @@ def bootstrap_ci(
     rng: Optional[np.random.Generator] = None,
     *,
     progress_every: int = 0,
+    elo_mc_gamma_a: Optional[float] = None,
+    elo_mc_gamma_b: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Percentile bootstrap confidence intervals for a single prediction vector x.
@@ -191,7 +254,14 @@ def bootstrap_ci(
         )
         try:
             model_b.fit(X_b, y_b, max_iter=500)
-            all_probs[b] = model_b.predict_proba(x)
+            x_pred = x
+            if elo_mc_gamma_a is not None and elo_mc_gamma_b is not None:
+                x_pred = x.copy()
+                x_pred[0] += (
+                    float(rng.standard_cauchy() * elo_mc_gamma_a)
+                    - float(rng.standard_cauchy() * elo_mc_gamma_b)
+                )
+            all_probs[b] = model_b.predict_proba(x_pred)
         except Exception:
             pass  # leave as NaN — filtered below
 
@@ -256,9 +326,19 @@ def compute_prediction_ci(
     *,
     bootstrap_W: Optional[np.ndarray] = None,
     bootstrap_progress_every: int = 0,
+    force_cauchy_wc_debut: bool = False,
+    elo_mc_gamma_a: Optional[float] = None,
+    elo_mc_gamma_b: Optional[float] = None,
+    W_point: Optional[np.ndarray] = None,
+    rng: Optional[np.random.Generator] = None,
 ) -> Tuple[np.ndarray, np.ndarray, str]:
     """
     Route to bootstrap or Cauchy based on effective sample size.
+
+    If ``force_cauchy_wc_debut`` is True (at least one corner has no prior bout
+    in this weight class before ``fight_date``), returns Cauchy intervals for
+    all six classes and method tag ``cauchy_wc_debut`` — bootstrap is
+    skipped regardless of effective sample size.
 
     If ``bootstrap_W`` is provided (from train-time bootstrap) with at least 10
     draws, intervals are computed via ``bootstrap_ci_from_stored_W`` — no refit.
@@ -269,8 +349,21 @@ def compute_prediction_ci(
     Returns:
         lower   : (N_CLASSES,) lower CI bounds
         upper   : (N_CLASSES,) upper CI bounds
-        method  : "bootstrap" or "cauchy"
+        method  : ``bootstrap``, ``bootstrap_elo_mc``, ``elo_mc``, ``cauchy``, or ``cauchy_wc_debut``
     """
+    if rng is None:
+        rng = np.random.default_rng(getattr(config, "bootstrap_seed", 42) + 90210)
+
+    use_elo_mc = (
+        config.elo_mc_n_draws > 0
+        and elo_mc_gamma_a is not None
+        and elo_mc_gamma_b is not None
+    )
+
+    if force_cauchy_wc_debut:
+        lower, upper = cauchy_ci(point_estimate, config.cauchy_scale, config.ci_alpha)
+        return lower, upper, "cauchy_wc_debut"
+
     use_bootstrap = effective_n >= config.cauchy_fallback_threshold
 
     if use_bootstrap:
@@ -279,21 +372,49 @@ def compute_prediction_ci(
             and bootstrap_W.size > 0
             and bootstrap_W.shape[0] >= 10
         ):
+            if use_elo_mc:
+                lower, upper = elo_mc_percentile_ci(
+                    x,
+                    bootstrap_W,
+                    elo_mc_gamma_a,
+                    elo_mc_gamma_b,
+                    config.elo_mc_n_draws,
+                    config.ci_alpha,
+                    rng,
+                )
+                return lower, upper, "bootstrap_elo_mc"
             lower, upper = bootstrap_ci_from_stored_W(
                 x, bootstrap_W, config.ci_alpha,
             )
             return lower, upper, "bootstrap"
 
         if X_train is not None and y_train is not None:
+            elo_a = elo_mc_gamma_a if use_elo_mc else None
+            elo_b = elo_mc_gamma_b if use_elo_mc else None
             lower, upper, _ = bootstrap_ci(
                 x=x,
                 X_train=X_train,
                 y_train=y_train,
                 train_weights=train_weights,
                 config=config,
+                rng=rng,
                 progress_every=bootstrap_progress_every,
+                elo_mc_gamma_a=elo_a,
+                elo_mc_gamma_b=elo_b,
             )
-            return lower, upper, "bootstrap"
+            return lower, upper, ("bootstrap_elo_mc" if use_elo_mc else "bootstrap")
+
+    if use_elo_mc and W_point is not None:
+        lower, upper = point_W_elo_mc_ci(
+            x,
+            W_point,
+            elo_mc_gamma_a,
+            elo_mc_gamma_b,
+            config.elo_mc_n_draws,
+            config.ci_alpha,
+            rng,
+        )
+        return lower, upper, "elo_mc"
 
     lower, upper = cauchy_ci(point_estimate, config.cauchy_scale, config.ci_alpha)
     return lower, upper, "cauchy"
@@ -310,19 +431,24 @@ def format_prediction_table(
     ci_method: str,
     effective_n: float,
     pct_post_era: float,
-    era_cutoff_year: int,
-    alpha: float = 0.05,
+    master_start_year: int,
+    alpha: float = 0.10,
 ) -> str:
     """
     Format the 6-class prediction as the output table shown in architecture Section 8.5.
     """
     ci_pct = int((1.0 - alpha) * 100)
-    method_str = (
-        f"Bootstrap n={int(effective_n)}"
-        if ci_method == "bootstrap"
-        else "Cauchy — sparse reference class"
-    )
-    era_note = f"{pct_post_era:.0%} post-{era_cutoff_year}"
+    if ci_method == "bootstrap":
+        method_str = f"Bootstrap n={int(effective_n)}"
+    elif ci_method == "bootstrap_elo_mc":
+        method_str = f"Bootstrap × ELO MC n={int(effective_n)}"
+    elif ci_method == "elo_mc":
+        method_str = "ELO MC (point W)"
+    elif ci_method == "cauchy_wc_debut":
+        method_str = "Cauchy — weight-class debut"
+    else:
+        method_str = "Cauchy — sparse reference class"
+    era_note = f"{pct_post_era:.0%} from {master_start_year}"
 
     col_w = [25, 11, 16]
     header = (
@@ -339,14 +465,26 @@ def format_prediction_table(
         )
 
     lines.append("")
-    if ci_method == "cauchy":
+    if ci_method in ("bootstrap", "bootstrap_elo_mc"):
         lines.append(
-            f"Reference: {int(effective_n)} similar fights | Mixed eras | "
-            f"⚠ Interpret with caution"
+            f"Reference: {int(effective_n)} similar fights | {era_note} | Era: Modern"
+        )
+        if ci_method == "bootstrap_elo_mc":
+            lines.append("CIs include Cauchy ELO shocks (γ per corner; ADR-19).")
+    elif ci_method == "elo_mc":
+        lines.append(
+            f"Reference: training ESS ≈ {int(effective_n)} | {era_note} | "
+            "CIs from Cauchy ELO MC (point coefficients; ADR-19)"
+        )
+    elif ci_method == "cauchy_wc_debut":
+        lines.append(
+            f"Reference: training ESS ≈ {int(effective_n)} | {era_note} | "
+            "⚠ Weight-class debut (Cauchy CIs; bootstrap skipped for this bout)"
         )
     else:
         lines.append(
-            f"Reference: {int(effective_n)} similar fights | {era_note} | Era: Modern"
+            f"Reference: {int(effective_n)} similar fights | Mixed eras | "
+            f"⚠ Interpret with caution"
         )
 
     return "\n".join(lines)

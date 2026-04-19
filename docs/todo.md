@@ -26,7 +26,7 @@ Steps are ordered chronologically. Detail decreases the further out they are.
 - Both banners **NC**, or method text such as **Could Not Continue** / **No Contest** → `no contest`; `winner_id` blank.
 - Disqualification wording → `dq` (winner inferred from W/L when the site shows one fighter **L**).
 
-The model needs per-fight striking and grappling stats for every UFC fight from 2013 onward, plus outcome/method data for older fights used in ELO construction.
+The regression needs per-fight striking and grappling stats for Tier-1 UFC fights with `year >= Config.master_start_year` (default **2005**) wherever the scraper/loader yields a complete feature row. UFCStats **full totals** coverage is still uneven in early years—expect more skips or thin stats before the ~2010s–2013 window; outcome/method data for older fights continues to support ELO construction.
 
 **Target columns for `data/ufcstats_fights.csv`** (pipeline also accepts legacy `tier1_ufcstats.csv`):
 
@@ -146,7 +146,7 @@ Saving model → model.pkl
 Done.
 ```
 
-- [ ] Verify training fight count is plausible (post-2013 UFC fights with a decisive result ≈ 4,000–5,000).
+- [ ] Verify training fight count is plausible for your **`master_start_year`** (rough sanity: post-~2013 decisive Tier-1 UFC rows often ≈ 4k–5k; earlier floors need explicit counts and missing-stat checks).
 - [ ] Verify no `NaN` or `inf` in the feature matrix (`np.isfinite(predictor._X_train).all()`).
 - [ ] Run a test prediction on a known recent fight and check that the output probabilities sum to 1.0.
 
@@ -188,7 +188,7 @@ assert abs(p1[0] - p2[4]) < 0.12  # example tolerance; tune after validation str
 ### 3.1 Build a Train / Test Split
 
 - **Holdout (evaluation-only):** Reserve UFC fights from a fixed **recent calendar window** (e.g. fights on or after **2023-01-01**, or years **2023–2024**) for scoring only. They are **excluded from regression training**; **ELO** (and style history) should still be built **chronologically** so features at each holdout fight use only past information (same lookahead discipline as today).
-- **Implementation (to add):** e.g. `holdout_start_date` or `holdout_start_year` in [`src/config.py`](../src/config.py) + filter in [`train_regression`](../src/pipeline.py) so `X_train` / `y_train` exclude holdout rows. Keep [`FeatureConfig.era_cutoff_year`](../src/config.py) as the **regression-era floor** (default **2013**); it is independent of the holdout window.
+- **Implementation:** [`Config.holdout_start_date`](../src/config.py) + filter in [`train_regression`](../src/pipeline.py) (fights with `fight_date >= holdout_start_date` excluded from the multinomial fit). Train CLI: `python main.py train --holdout-start YYYY-MM-DD`. Metrics: `python main.py eval-holdout` (mean log-loss, Brier, accuracy on holdout rows). **`Config.master_start_year`** is the **regression-era floor** (default **2005**); independent of the holdout window.
 - **Protocol:** Prefer **time-based** holdout (see [`validation-and-few-shot.md`](validation-and-few-shot.md)). Optional **walk-forward** (expand training end, score the next chunk) for drift.
 - **Do not** use IID random splits across fight rows (fighter leakage).
 
@@ -207,8 +207,8 @@ Tune **one knob at a time** (or small factorial only after baselines), fixing ot
 
 | Item | Where | Role in Phase 3 |
 |------|--------|-----------------|
-| **`era_cutoff_year`** (default **2013**) | `FeatureConfig` | **Regression training floor** — Tier 1 fights before this year are excluded from the **multinomial** fit. **Tune on holdout** (e.g. try 2010, 2012, 2013, 2015): too early → non-stationary sport; too late → less data. Listed explicitly as a **first-class tuning lever**, not a fixed constant. |
-| **Holdout window** | TBD `holdout_start_*` + pipeline filter | **Evaluation-only** fights; must not appear in `X_train`. |
+| **`master_start_year`** (default **2005**) | `Config` | **Regression training floor** — Tier 1 fights before this calendar year are excluded from the **multinomial** fit (and anchors the first expanding walk-forward training year). **Tune on holdout** (e.g. try 2005, 2010, 2013, 2015): too early → non-stationary sport / thin stats; too late → less data. **Single source of truth** — do not duplicate year cutoffs elsewhere. |
+| **`holdout_start_date`** | `Config` | **Evaluation-only** from this calendar date onward; excluded from `X_train`. Set via `--holdout-start` on train or in code. |
 | **Training row weights** | `train_regression` (recency: `1 / (1 + days_old/365)`) | Implicit **sample weights** on post-era rows; document sensitivity in ablations if needed. |
 
 #### ELO layer (`ELOConfig` + method scale)
@@ -238,11 +238,42 @@ Tune **one knob at a time** (or small factorial only after baselines), fixing ot
 | **`huber_delta`** | `ModelConfig` | Robust loss tail; outlier sensitivity. |
 | **`n_bootstrap`** | `ModelConfig` | Count of stored bootstrap draws (train cost vs CI stability). |
 | **`bootstrap_seed`** | `ModelConfig` | Reproducibility of bootstrap draws. |
-| **`ci_alpha`** | `ModelConfig` | CI width (e.g. 0.05 → 95%). |
+| **`ci_alpha`** | `ModelConfig` | CI width (default **0.10** → 90% two-sided). |
 | **`cauchy_fallback_threshold`** | `ModelConfig` | ESS below this → Cauchy CIs; tune vs empirical CI coverage on holdout. |
-| **`cauchy_scale`** | `ModelConfig` | Width of Cauchy fallback intervals. |
+| **`cauchy_scale`** | `ModelConfig` | Width of Cauchy fallback intervals (probability-level Cauchy, not ELO MC). |
+| **`elo_mc_n_draws`** | `ModelConfig` | Draw count for **Cauchy ELO Monte Carlo** at `predict` (nested with stored bootstrap `W` when available). |
+| **`elo_mc_gamma_min`** | `ModelConfig` | **γ** floor (ELO points) for `Cauchy(0, γ)` shocks at zero idle; see `elo_mc_gamma_for_days_idle`. |
+| **`elo_mc_gamma_slope_sqrt_year`** | `ModelConfig` | **γ** growth with `sqrt(idle_years)`; larger → wider MC for long layoffs. |
+| **`elo_mc_gamma_max`** | `ModelConfig` | Cap on **γ** per corner so extreme idle does not explode sampling. |
 
-**Legacy note:** Section 3.3 previously listed a shorter subset; the table above is the **authoritative Phase 3 checklist** (era boundary, all ELO levers above, train/test split parameters once implemented, thresholds and weights).
+**Legacy note:** Section 3.3 previously listed a shorter subset; the table above is the **authoritative Phase 3 checklist** (`master_start_year`, all ELO levers above, train/test split parameters once implemented, thresholds and weights).
+
+### 3.4 Iterative tuning loop (model generations)
+
+Phase 3 tuning is **not** a one-shot train: you run **repeated model generations** — each generation is a **full train** on the same data snapshot, a **saved model artifact**, and a **holdout score** so runs sort cleanly by **mean log-loss** (primary), then Brier / accuracy.
+
+**Lock the evaluation slice.** Pick **`holdout_start_date`** once for the whole campaign (e.g. `2023-01-01` via `python main.py train --data-dir ./data --holdout-start 2023-01-01`). Changing the holdout between generations makes metrics incomparable unless you explicitly start a **new** tuning campaign and re-baseline.
+
+**Per iteration (one generation):**
+
+1. **Change one knob** (§3.3) in [`src/config.py`](../src/config.py) — or in the relevant module if the constant is not yet on `Config`. Record what changed (commit message, lab notebook, or run log).
+2. **Train:**  
+   `python main.py train --data-dir ./data --holdout-start YYYY-MM-DD`  
+   Use a **distinct** `--model-path` per generation so baselines are not overwritten, e.g.  
+   `--model-path ./data/Saved_Runs/phase3_run04_l2_1e-3.pkl`.
+3. **Score holdout:**  
+   `python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_run04_l2_1e-3.pkl`  
+   (Top-level `--model-path` before `eval-holdout` also works.)
+4. **Record** mean log-loss, Brier, accuracy, wall time, and a short label (knob + value). A spreadsheet or a markdown table under `data/Saved_Runs/` is enough.
+
+**Rules of thumb:**
+
+- **One knob at a time** until the baseline is stable; then optional small factorials on **related** pairs (e.g. `k_base` × `logistic_divisor`).
+- **Same `data/` directory** across generations unless you intentionally refresh UFCStats — a data refresh starts a **new** campaign; re-train a baseline before comparing new knobs.
+
+**`elo_mc_*` / γ:** [`eval-holdout`](../main.py) uses **point** probabilities only, so it **does not** directly optimize interval width. For **γ**, still use the same retrain loop; add **`predict`** spot checks or interval/coverage analysis (Phase 4) when tuning layoff-sensitive CIs.
+
+**Optional outer loop:** After a single holdout is stable, add **expanding walk-forward** (train through year *Y*, score *Y+1*) for drift — see [`validation-and-few-shot.md`](validation-and-few-shot.md). That is separate from the first pass of §3.4.
 
 ---
 
@@ -252,7 +283,7 @@ Tune **one knob at a time** (or small factorial only after baselines), fixing ot
 - Add `tests/` directory with unit tests for ELO update math, feature symmetry, and CI coverage.
 - Add a `requirements.txt` with pinned versions of `numpy`, `scipy`.
 - Handle weight class changes properly: when a fighter moves weight class, their ELO in the new class should initialise from their prior class ELO with an appropriate discount (architecture deferred this).
-- Validate CI coverage empirically: check that 95% CIs contain the true outcome in approximately 95% of holdout fights.
+- Validate CI coverage empirically: check that intervals at **`1 - ci_alpha`** (default **90%** with `ci_alpha = 0.10`) contain the true outcome at roughly that rate on holdout fights.
 - Add a `--verbose` flag to expose intermediate state (ELO values, raw feature vector) for debugging predictions.
 
 ---

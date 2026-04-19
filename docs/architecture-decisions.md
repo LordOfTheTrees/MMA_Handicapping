@@ -20,7 +20,7 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 **Context.** The fights parser locates the main per-fight stats table by requiring a `<thead>` that contains **“Sig. str.”** (see `_find_totals_table` in `ufcstats_scraper.py`). Many **early UFC cards (often 1990s)** on UFCStats do not expose that table or use an incompatible layout, so parsing returns `None` and diagnostics report **`no_totals_table`**.
 
-**Decision.** **Do not** add a dedicated legacy HTML path in the first iteration. Those fights are logged to **`failed_entries.csv`** and omitted from `ufcstats_fights.csv`. For modeling, this is acceptable: the regression era begins around **2013**, where full stats exist; ancient cards are mainly relevant for long-horizon ELO context, and missing rows are a small tail.
+**Decision.** **Do not** add a dedicated legacy HTML path in the first iteration. Those fights are logged to **`failed_entries.csv`** and omitted from `ufcstats_fights.csv`. For modeling, this is acceptable: **full** UFCStats “totals” tables (Sig. str., etc.) are still sparse on many early cards, while **`Config.master_start_year`** sets which Tier-1 rows *attempt* to enter regression when the loader has usable stats. Ancient cards remain relevant for long-horizon ELO; validate feature coverage if you lower the calendar floor.
 
 **Consequences.** Gap analysis must distinguish **“never scraped”** (use [`ufcstats_gap_report`](../src/data/ufcstats_gap_report.py)) from **“scraped but not parsed”** (use `failed_entries.csv`). If we later need result-only rows for ELO (winner/method, empty stats), that would be a **new** scraper mode and loader rules.
 
@@ -175,7 +175,7 @@ We discussed the two directions explicitly, including which kinds of fighters ea
 - **Damp on layoff** → rating sticky through gaps → model **favors names with history** (returning champs retain rating; rising stars credited slowly; faded legends degrade slowly).
 - **Amplify on layoff (our choice)** → stored rating treated as stale → model **favors whoever is currently performing** (returning fighter's result moves rating aggressively in either direction).
 
-**Decision.** Keep the standard Kalman geometry — **amplify** updates after long layoffs. A stale rating is a worse prior than a fresh in-cage result, and a handicapping model is more useful reacting to information than preserving legacy. Current knob values: **`kalman_process_noise = 0.0025`**/day, **`kalman_measurement_noise = 1.0`**, so e.g. `K ≈ 0.55` after 3 months idle, `K ≈ 0.66` after 12 months (roughly 45% damping vs 34% damping of the classical step with `P_prev ≈ 1`, `R = 1`). The full worked example and the scenario table live in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
+**Decision.** Keep the standard Kalman geometry — **amplify** updates after long layoffs. A stale rating is a worse prior than a fresh in-cage result, and a handicapping model is more useful reacting to information than preserving legacy. Current knob values: **`kalman_process_noise = 0.01`**/day, **`kalman_measurement_noise = 1.0`**, so e.g. `K ≈ 0.66` after 3 months idle, `K ≈ 0.82` after 12 months (with `P_prev ≈ 1`, `R = 1`). The full worked example and the scenario table live in [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md).
 
 **Consequences.**
 
@@ -184,6 +184,44 @@ We discussed the two directions explicitly, including which kinds of fighters ea
 - Rising stars who win a signature fight after a short break are credited immediately.
 - Uncertainty grows but the **mean** does not decay toward 1500 during idle time — only `P` grows. Any desired "inactive fighters should drift lower in point ELO" behavior requires a separate change (explicit mean pull in `kalman_predict`, not just more process noise).
 - If future calibration shows we are overreacting to return fights, documented flip paths exist: couple `R` to idle time, cap `K` past a threshold, or add a mean pull toward a pool prior. See `elo-kalman-layoff-philosophy.md` §7.
+
+---
+
+## ADR-17: Cauchy prediction intervals for weight-class debuts
+
+**Context.** Bootstrap confidence intervals resample the **global** weighted training set to quantify uncertainty in the **fitted** multinomial coefficients. That captures **model** uncertainty given historical matchups, not a bespoke “this athlete has never fought in this division” epistemic story. For a corner with **no prior bout in the same weight class** in loaded data before the card date, the point estimate still uses cold-start priors and ELO, but bootstrap CIs can look **misleadingly tight** relative to true ignorance about how they perform in-division.
+
+**Decision.** In [`MMAPredictor.predict`](../src/pipeline.py), if **either** fighter has **fewer than one** prior fight in the **same** `WeightClass` with `fight_date` **strictly before** the predicted bout’s date (counting all loaded `FightRecord` rows in that class, any tier), **skip bootstrap** and compute **Cauchy** intervals for **all six** outcome probabilities via [`compute_prediction_ci(..., force_cauchy_wc_debut=True)`](../src/confidence/intervals.py). The returned `ci_method` tag is **`cauchy_wc_debut`** (distinct from generic **`cauchy`** used for sparse ESS / missing bootstrap).
+
+**Explicit Q&A — layoff vs CI width (router vs MC).** The **bootstrap / ESS / debut router** does **not** use idle days. **Layoff-driven widening** (when implemented) is **continuous** via **Cauchy ELO Monte Carlo**: per-corner **γ** grows with calendar idle — see **ADR-19** and `ModelConfig.elo_mc_gamma_*` / `elo_mc_gamma_for_days_idle` in [`src/config.py`](../src/config.py). Kalman layoff still affects **ELO mean path** (ADR-15/16), separate from **γ** sampling.
+
+**Consequences.** Debut-in-division matchups get heavier-tailed, wider nominal intervals around the same point softmax. Fighters with **cross-division** history still count prior bouts **only in the queried weight class**. If the corpus is incomplete, a “debut” may be a data artifact — document data coverage when interpreting.
+
+---
+
+## ADR-19: Cauchy ELO Monte Carlo scales (**γ**)
+
+**Context.** Bootstrap captures uncertainty in **coefficients** `W`. **Epistemic** uncertainty about whether **headline ELO** matches true strength in-division—especially after time off—is better probed by **simulation**: independent **Cauchy** shocks `ε_a`, `ε_b` in ELO points, `elo_draw = μ + ε`, rebuild features, `softmax(Wx)`, percentile intervals. **No Gaussian** draws on ELO; Cauchy absorbs tail events per product preference.
+
+**Decision.** Hyperparameters live on **`ModelConfig`**: `elo_mc_n_draws`, `elo_mc_gamma_min`, `elo_mc_gamma_slope_sqrt_year`, `elo_mc_gamma_max`, with **`elo_mc_gamma_for_days_idle(days_idle)`** implementing  
+`γ = min(γ_max, γ_min + slope * sqrt(max(0, days_idle)/365.25))`  
+per corner from **global** days since last fight to predict date. **No** discrete layoff threshold routing—wider sampling is **only** from larger **γ**. Distinct from **training** recency row weights (ADR-18).
+
+**Consequences.** Tune **γ** knobs on holdout coverage stratified by layoff. With stored bootstrap **`W`**, `predict` runs **`elo_mc_n_draws`** Cauchy ELO shocks per sample, cycling **`W_b`** rows so coefficient and ELO uncertainty both appear. Set **`elo_mc_n_draws`** to **0** to disable ELO MC and keep bootstrap-only CIs.
+
+---
+
+## ADR-18: Recency leaning (non-stationarity) across training, style axes, and ELO
+
+**Context.** MMA is **non-stationary**; older cards are not exchangeable with modern ones. Several mechanisms **lean on recent evidence**; they are **related in intent** but **not the same mathematics**.
+
+**Decision (documented layering).**
+
+1. **Regression training sample weights** — In [`train_regression`](../src/pipeline.py), each Tier-1 row gets weight `1 / (1 + days_old/365)` relative to **train run date**, so the multinomial fit emphasizes **recent** historical outcomes when estimating **global** coefficients.
+2. **Style-axis recency** — [`compute_style_axes`](../src/features/construction.py) applies `FeatureConfig.recency_decay_rate` so **within** a fighter’s history (as of fight date), **recent** bouts contribute more to striker/grappler/finish scores.
+3. **Kalman process noise** — Grows posterior variance during **idle calendar time** so the **next** ELO update can move the **mean** more after layoffs (ADR-16). This shapes **ratings**. **Prediction** interval width from layoff uses **Cauchy ELO MC** **γ** (ADR-19), not the Kalman router alone.
+
+**Consequences.** Tuning “how much we trust the past” can move **all three** layers; changes should be justified against holdout metrics (`docs/todo.md` §3.3). Readers should not confuse **training down-weighting of old rows** with **Kalman variance** or with **probability-level Cauchy** / **ELO MC γ** (**ADR-19**) — each addresses a different part of the stack.
 
 ---
 

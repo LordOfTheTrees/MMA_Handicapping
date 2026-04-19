@@ -1,6 +1,6 @@
 # Kalman process noise — top 15 side by side
 
-Source: merged from `docs/k sensitivity comparison top 15.txt`. **Left:** `kalman_process_noise = 0.01`. **Right:** `kalman_process_noise = 0.0025`. As-of date in source: 2026-04-19.
+Source: merged from `docs/k sensitivity comparison top 15.txt`. **Left:** `kalman_process_noise = 0.01` (**matches current `ELOConfig` default**). **Right:** `kalman_process_noise = 0.0025` (older run). As-of date in source: 2026-04-19.
 
 ## Flyweight (men)
 

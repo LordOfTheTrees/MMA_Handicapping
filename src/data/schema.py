@@ -183,7 +183,7 @@ class PredictionResult:
     ci_lose_ko_tko: tuple
     ci_lose_submission: tuple
     # Metadata
-    ci_method: str                  # "bootstrap" or "cauchy"
+    ci_method: str                  # bootstrap | bootstrap_elo_mc | elo_mc | cauchy | cauchy_wc_debut
     effective_n: float
     pct_post_era: float
     features: Optional[MatchupFeatures] = None

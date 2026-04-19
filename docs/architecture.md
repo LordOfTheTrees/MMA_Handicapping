@@ -70,12 +70,12 @@ The data pipeline has four tiers reflecting data quality and availability. Each 
 | 3 | Sherdog Fight Finder | Regional and minor promotions globally | Outcomes only | ELO construction only |
 | 4 | Combat sports background | Wrestling rankings, boxing records, BJJ results | Signals only | Starting ELO prior adjustment |
 
-### 3.2 Era Cutoff
+### 3.2 Regression calendar floor (`master_start_year`)
 
-The sport has changed structurally and is not a stationary process across its full history. Athletic composition, training methodology, finish rates, and judging criteria have all shifted materially. To avoid training the regression on data drawn from a different underlying sport:
+The sport has changed structurally and is not a stationary process across its full history. Athletic composition, training methodology, finish rates, and judging criteria have all shifted materially. The regression still needs a **single calendar floor** so training volume and era are controlled in one place:
 
-- **Regression training data:** Tier 1 fights from approximately 2013 onward only. This represents the modern era of MMA-specific athletic preparation, stabilized judging criteria, and current finish rate norms. The exact cutoff year is a tunable parameter but should be validated against holdout performance.
-- **ELO construction:** All available historical data across all tiers, regardless of era. Pre-cutoff fights inform ELO initialization but never enter the regression training set.
+- **Regression training data:** Tier 1 fights with `fight_date.year >= Config.master_start_year` (default **2005**). Raising the floor (e.g. toward the mid-2010s) emphasizes a more “modern” sport at the cost of sample size; **tune on holdout** (see [`docs/todo.md`](todo.md) §3.3). The authoritative field is **`master_start_year`** in [`src/config.py`](../src/config.py) — do not duplicate year cutoffs elsewhere.
+- **ELO construction:** All available historical data across all tiers, regardless of era. Fights before the regression floor still inform ELO and style-at-date features but only Tier-1 rows on/after **`master_start_year`** enter the multinomial training set (see `filter_tier1_post_era`).
 
 ### 3.3 Cross-Promotion ELO Transfer
 
@@ -285,16 +285,18 @@ When the effective sample is too small for bootstrap CIs to be trustworthy — s
 
 The trigger for Cauchy fallback is a tunable threshold on effective sample size after weighting. Below the threshold, the model explicitly communicates that it lacks sufficient reference class data.
 
+**Weight-class debut:** Independently of ESS, if **either** corner has **no** prior fight in the **same** weight class (strictly before the bout date) in loaded data, **`predict`** forces Cauchy intervals for all six outcomes and reports method **`cauchy_wc_debut`**. See **ADR-17** in [`architecture-decisions.md`](architecture-decisions.md). **Layoff-driven** widening uses **Cauchy ELO MC** and **γ** (`ModelConfig`, **ADR-19**), not this router.
+
 ### 8.4 Kalman Uncertainty Contribution
 
 Time elapsed since the fighter's **last bout in any weight class** grows the **posterior variance** on that fighter’s ELO Kalman state for the division being queried (§4.5). That variance controls **Kalman gain** on the next fight update (how aggressively the stored **mean** moves toward the classical `value + delta` target) and appears in **`ELOState.uncertainty`** for diagnostics (e.g. chart summaries).
 
-**Regression today:** The multinomial feature vector uses **`elo_differential`** from the Kalman **mean** only ([`build_matchup_features`](src/matchup/interactions.py)). ELO Kalman variance does **not** yet enter features or the bootstrap/Cauchy CIs (those reflect coefficient/data uncertainty on the fitted logit, not ELO epistemics). Closing that gap — features, expected-score under doubt, and/or CI propagation — is tracked in [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md).
+**Regression today:** The multinomial feature vector uses **`elo_differential`** from the Kalman **mean** only ([`build_matchup_features`](src/matchup/interactions.py)). ELO Kalman variance does **not** yet enter **features**. **Bootstrap** CIs (stored **`W`**) combine coefficient uncertainty with optional **Cauchy ELO MC** on the ELO differential (**γ** per corner, **ADR-19**); **debut Cauchy** is separate routing. Neither path injects Kalman **`P`** into features. **Layoff** affects the **ELO mean path** via Kalman gain; extra **prediction** widening vs idle comes from larger **γ** when `predict` runs ELO MC. Deeper Kalman × feature / CI coupling remains in [`docs/elo-modeling-status.md`](docs/elo-modeling-status.md).
 
 ### 8.5 Output Format
 
 ```
-                    Point Est.   95% CI          Method
+                    Point Est.   90% CI          Method
 Win by KO/TKO         0.24      [0.17, 0.31]    Bootstrap n=47
 Win by Submission      0.09      [0.04, 0.14]    Bootstrap n=47
 Win by Decision        0.28      [0.21, 0.35]    Bootstrap n=47
@@ -307,7 +309,7 @@ Reference: 47 similar fights | 89% post-2019 | Era: Modern
 
 Sparse case:
 ```
-                    Point Est.   95% CI          Method
+                    Point Est.   90% CI          Method
 Win by KO/TKO         0.26      [0.04, 0.61]    Cauchy — sparse reference class
 ...
 
@@ -327,18 +329,18 @@ Reference: 6 similar fights | Mixed eras | ⚠ Interpret with caution
 | Parametric distributional assumptions on outcomes | Avoided in favor of bootstrap and Cauchy fallback |
 | Gradient boosting or neural network components | Black box — interpretability is non-negotiable |
 | Global ELO across weight classes | Quality does not transfer across weight classes |
-| Pre-era-cutoff regression training data | Non-stationary with modern sport |
+| Regression training far below your chosen `master_start_year` | Non-stationary vs modern sport; tune the floor on holdout |
 
 ---
 
 ## 10. Open Design Questions
 
-The following parameters require **empirical tuning against holdout prediction performance** (Phase 3) and are not specified a priori. The **authoritative Phase 3 inventory** — including the **2013-class `era_cutoff_year` boundary**, **all ELO levers**, **train/holdout split** (once implemented), and **model thresholds/weights** — lives in [`docs/todo.md`](docs/todo.md) §**3.3 Phase 3 tuning inventory**.
+The following parameters require **empirical tuning against holdout prediction performance** (Phase 3) and are not specified a priori. The **authoritative Phase 3 inventory** — including **`Config.master_start_year`** (regression calendar floor), **all ELO levers**, **train/holdout split** (once implemented), and **model thresholds/weights** — lives in [`docs/todo.md`](docs/todo.md) §**3.3 Phase 3 tuning inventory**.
 
 Summary (see §3.3 for the full table):
 
-- **`era_cutoff_year`** (default 2013): regression-era floor; tune on holdout, not fixed forever.
+- **`master_start_year`** (default 2005): Tier-1 regression training floor and first expanding walk-forward training year; tune on holdout, not fixed forever.
 - **Holdout window** / train–test split parameters (to be added to the pipeline).
 - **ELO:** `k_base`, `logistic_divisor`, `tier_discount`, Kalman noises, `_K_SCALE` method multipliers.
 - **Features:** `recency_decay_rate`, `min_fights_style_estimate`.
-- **Regression / CIs:** `l2_lambda`, `huber_delta`, `n_bootstrap`, `ci_alpha`, Cauchy threshold/scale, bootstrap seed.
+- **Regression / CIs:** `l2_lambda`, `huber_delta`, `n_bootstrap`, `ci_alpha`, Cauchy threshold/scale, bootstrap seed, **Cauchy ELO MC** `elo_mc_*` / **γ** (`elo_mc_gamma_for_days_idle`).

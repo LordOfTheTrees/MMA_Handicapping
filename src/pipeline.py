@@ -56,6 +56,21 @@ def _empty_profile(fighter_id: str) -> FighterProfile:
     return FighterProfile(fighter_id=fighter_id, name=fighter_id)
 
 
+def _migrate_model_config_elo_mc_fields(model: Optional[object]) -> None:
+    """Pickle migration: ``ModelConfig`` gains Cauchy ELO MC γ hyperparameters."""
+    if model is None:
+        return
+    defaults = {
+        "elo_mc_n_draws": 200,
+        "elo_mc_gamma_min": 5.0,
+        "elo_mc_gamma_slope_sqrt_year": 25.0,
+        "elo_mc_gamma_max": 120.0,
+    }
+    for key, val in defaults.items():
+        if not hasattr(model, key):
+            object.__setattr__(model, key, val)
+
+
 # ---------------------------------------------------------------------------
 # Main predictor class
 # ---------------------------------------------------------------------------
@@ -184,6 +199,34 @@ class MMAPredictor:
             and f.weight_class == wc
         ]
 
+    def _n_prior_bouts_in_wc(
+        self, fighter_id: str, wc: WeightClass, fight_date: date
+    ) -> int:
+        """
+        Count bouts in ``wc`` strictly before ``fight_date`` (any tier in loaded data).
+
+        Used to detect a **weight-class debut** for Cauchy CIs: fewer than one
+        such bout means no prior in-division history in our corpus before this card.
+        """
+        return sum(
+            1
+            for f in self._fighter_fights(fighter_id, wc)
+            if f.fight_date < fight_date
+        )
+
+    def _force_cauchy_weight_class_debut(
+        self,
+        fighter_a_id: str,
+        fighter_b_id: str,
+        wc: WeightClass,
+        fight_date: date,
+    ) -> bool:
+        """True if either corner has zero prior bouts in ``wc`` before ``fight_date``."""
+        return (
+            self._n_prior_bouts_in_wc(fighter_a_id, wc, fight_date) < 1
+            or self._n_prior_bouts_in_wc(fighter_b_id, wc, fight_date) < 1
+        )
+
     def get_style_axes(
         self,
         fighter_id: str,
@@ -232,18 +275,28 @@ class MMAPredictor:
             raise RuntimeError("Call build_elo() before train_regression().")
 
         training_fights = filter_tier1_post_era(
-            self.fights, self.config.features.era_cutoff_year
+            self.fights, self.config.master_start_year
         )
-        n_scan = len(training_fights)
         print(
-            f"  [train] post-{self.config.features.era_cutoff_year} Tier-1 candidate fights: {n_scan:,}",
+            f"  [train] Tier-1 candidate fights (year >= {self.config.master_start_year}): "
+            f"{len(training_fights):,}",
             flush=True,
         )
+        hsd = self.config.holdout_start_date
+        if hsd is not None:
+            n_pre = len(training_fights)
+            training_fights = [f for f in training_fights if f.fight_date < hsd]
+            print(
+                f"  [train] holdout: excluding fight_date >= {hsd} "
+                f"({n_pre - len(training_fights):,} excluded; {len(training_fights):,} train rows)",
+                flush=True,
+            )
         print(
             "  [train] building feature rows (style axes + ELO snapshot per fight date) ...",
             flush=True,
         )
 
+        n_train_candidates = len(training_fights)
         X_rows, y_rows, w_rows = [], [], []
         today = date.today()
 
@@ -276,12 +329,15 @@ class MMAPredictor:
             ):
                 print(
                     f"  [train] {n_done:,} regression rows "
-                    f"(scanned {fi + 1:,} / {n_scan:,} post-era fights)",
+                    f"(scanned {fi + 1:,} / {n_train_candidates:,} train-candidate fights)",
                     flush=True,
                 )
 
         if not X_rows:
-            raise RuntimeError("No valid training fights found. Check data_dir and era_cutoff_year.")
+            raise RuntimeError(
+                "No valid training fights found. Check data_dir, Config.master_start_year, "
+                "and holdout_start_date (holdout may have removed all rows)."
+            )
 
         self._X_train = np.array(X_rows)
         self._y_train = np.array(y_rows, dtype=int)
@@ -387,14 +443,38 @@ class MMAPredictor:
 
         eff_n = effective_sample_size(self._train_weights)
         bootstrap_W = getattr(self, "_bootstrap_W", None)
+        force_cauchy_wc_debut = self._force_cauchy_weight_class_debut(
+            fighter_a_id, fighter_b_id, wc, fight_date
+        )
         use_stored = (
             bootstrap_W is not None
             and bootstrap_W.size > 0
             and bootstrap_W.shape[0] >= 10
         )
         bootstrap_progress_every = 0 if use_stored else (40 if verbose else 0)
+        use_elo_mc = (
+            self.config.model.elo_mc_n_draws > 0
+            and not force_cauchy_wc_debut
+        )
+        days_idle_a = self.elo_model.days_since_last_fight_global(fighter_a_id, fight_date)
+        days_idle_b = self.elo_model.days_since_last_fight_global(fighter_b_id, fight_date)
+        gamma_a = self.config.model.elo_mc_gamma_for_days_idle(days_idle_a)
+        gamma_b = self.config.model.elo_mc_gamma_for_days_idle(days_idle_b)
+        W_point = self.regression.W
+
         if verbose:
-            if use_stored:
+            if force_cauchy_wc_debut:
+                print(
+                    "  [predict] Cauchy CIs (weight-class debut; bootstrap skipped) ...",
+                    flush=True,
+                )
+            elif use_stored and use_elo_mc:
+                print(
+                    f"  [predict] CIs: {bootstrap_W.shape[0]} bootstrap W × "
+                    f"{self.config.model.elo_mc_n_draws} Cauchy ELO draws (γ) ...",
+                    flush=True,
+                )
+            elif use_stored:
                 print(
                     f"  [predict] CIs from {bootstrap_W.shape[0]} stored bootstrap draws (no refit) ...",
                     flush=True,
@@ -408,11 +488,23 @@ class MMAPredictor:
                     if bootstrap_progress_every
                     else ""
                 )
+                _elo_suffix = " + Cauchy ELO (γ) per resample" if use_elo_mc else ""
                 print(
                     f"  [predict] bootstrap CIs ({self.config.model.n_bootstrap} resamples{prog}) "
-                    "(legacy path; retrain to cache draws) ...",
+                    f"(legacy path; retrain to cache draws){_elo_suffix} ...",
                     flush=True,
                 )
+            elif (
+                use_elo_mc
+                and eff_n < self.config.model.cauchy_fallback_threshold
+            ):
+                print(
+                    f"  [predict] CIs from {self.config.model.elo_mc_n_draws} Cauchy ELO draws "
+                    "(point coefficients; sparse ESS) ...",
+                    flush=True,
+                )
+        elo_ga = gamma_a if use_elo_mc else None
+        elo_gb = gamma_b if use_elo_mc else None
         lower, upper, ci_method = compute_prediction_ci(
             x=x,
             point_estimate=point_est,
@@ -423,13 +515,17 @@ class MMAPredictor:
             config=self.config.model,
             bootstrap_W=bootstrap_W,
             bootstrap_progress_every=bootstrap_progress_every,
+            force_cauchy_wc_debut=force_cauchy_wc_debut,
+            elo_mc_gamma_a=elo_ga,
+            elo_mc_gamma_b=elo_gb,
+            W_point=W_point,
         )
 
         if verbose:
             print(format_prediction_table(
                 point_est, lower, upper, ci_method, eff_n,
                 pct_post_era=1.0,
-                era_cutoff_year=self.config.features.era_cutoff_year,
+                master_start_year=self.config.master_start_year,
                 alpha=self.config.model.ci_alpha,
             ))
 
@@ -509,10 +605,23 @@ class MMAPredictor:
         return self.__dict__.copy()
 
     def __setstate__(self, state: dict) -> None:
-        """Pickle migration: older ``model.pkl`` files lack ``_bootstrap_W``."""
+        """Pickle migration: older ``model.pkl`` files lack ``_bootstrap_W`` / ``master_start_year``."""
         self.__dict__.update(state)
         if "_bootstrap_W" not in self.__dict__:
             self._bootstrap_W = None
+        cfg = self.__dict__.get("config")
+        if cfg is not None:
+            if not hasattr(cfg, "master_start_year"):
+                feat = getattr(cfg, "features", None)
+                legacy = getattr(feat, "era_cutoff_year", None) if feat is not None else None
+                object.__setattr__(
+                    cfg,
+                    "master_start_year",
+                    int(legacy) if legacy is not None else 2005,
+                )
+            if not hasattr(cfg, "holdout_start_date"):
+                object.__setattr__(cfg, "holdout_start_date", None)
+            _migrate_model_config_elo_mc_fields(getattr(cfg, "model", None))
 
     @classmethod
     def load(cls, path: Path) -> "MMAPredictor":
