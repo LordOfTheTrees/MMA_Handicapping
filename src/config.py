@@ -12,6 +12,13 @@ from datetime import date
 from typing import Dict, Optional
 
 
+#: Default time-based holdout for Tier-1 **regression** training (fights on/after this
+#: date are excluded from the multinomial fit; ELO still uses full history). Matches the
+#: Phase-3 / ``eval-holdout`` protocol in docs. Override via ``--holdout-start``; disable
+#: only for shipping / special runs with ``--no-holdout`` on the train command.
+DEFAULT_HOLDOUT_START_DATE = date(2023, 1, 1)
+
+
 @dataclass
 class ELOConfig:
     # ELO tuning: k_base and logistic_divisor (see docs/elo-tuning-knobs.md).
@@ -106,7 +113,7 @@ class Config:
     #: year cutoffs elsewhere. ELO construction still uses full fight history.
     master_start_year: int = 2005
 
-    #: If set, Tier-1 fights with ``fight_date >= holdout_start_date`` are **excluded**
-    #: from multinomial **training** only (Phase 3 evaluation slice). ELO is still built on
-    #: full history. Use ``main.py train --holdout-start`` or set in code before training.
-    holdout_start_date: Optional[date] = None
+    #: ``None`` = no date cut (train on all Tier-1 post-era rows; use sparingly). Default is
+    #: :data:`DEFAULT_HOLDOUT_START_DATE`. ``main.py train --holdout-start`` / ``--no-holdout``
+    #: override. ELO is always built on full history.
+    holdout_start_date: Optional[date] = field(default=DEFAULT_HOLDOUT_START_DATE)

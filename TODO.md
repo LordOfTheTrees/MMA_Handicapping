@@ -8,6 +8,13 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 ## Current status (detailed)
 
+**Phase 3 — first full walk-forward + random search (done, Apr 2026):**
+
+- **`scripts/run_phase3_tuning.py --selection-search`** completed on your current `data/` snapshot: **16** selection years (2007–2022, **50** trials/yr, last‑3 inner, seed **42**), then **pristine 2023–2025** with the **frozen 2022 winner** `Config`.
+- **Artifacts:** `data/phase3_eval/phase3_metrics.csv`, `phase3_report.json` (**`frozen_winner_config`** = full winning hyperparameters), `log_loss_selection_and_pristine.png`, `pristine_test_yoy.png`, `elo_walkforward_cache.pkl`.
+- **Not stored in JSON:** per-trial **hyperparameter vectors** (only `trial_rows` with inner/forward log-loss per trial). **Implication:** the **chain** of year-by-year winner configs is not replayable from the report without code changes or a re-run.
+- **Primary read:** pristine mean log-loss **improves** vs end of selection; treat as **supporting** evidence, not a proof — few correlated yearly aggregates.
+
 **In the repo (done):**
 
 - **UFCStats fights:** [`src/data/ufcstats_scraper.py`](src/data/ufcstats_scraper.py) — `scrape_ufcstats_fights_to_csv()`, `parse_fight_page()`, `REQUEST_DELAY_SEC` (set via `--sleep` in `main()` or assign before calling the scraper). Writes **`data/ufcstats_fights.csv`** by default; **`failed_entries.csv`** for fetch/parse failures.
@@ -26,7 +33,7 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 **Not the focus yet (optional / later):**
 
-- Tier 2–3 promotion CSVs, pedigree manual fill, **Phase 3 holdout tuning** (knob inventory [`docs/todo.md`](docs/todo.md) §3.3; **iteration loop** §3.4), CI / `elo_mc_*` notes in the same doc.
+- Tier 2–3 promotion CSVs, pedigree manual fill, **one-off** holdout OAT from [`docs/todo.md`](docs/todo.md) §3.3 when comparing single-knob ablations, CI / `elo_mc_*` spot checks in the same doc.
 
 ---
 
@@ -34,18 +41,32 @@ This file is the **human-facing roadmap**: where the project stands, the **next 
 
 Do these as the **immediate** slice of work; skip steps that are already satisfied for your tree.
 
-1. **Land CSVs you trust** — Let the current UFCStats fights run finish (or start a full `python -m src.data.ufcstats_scraper --data-dir ./data`). Copy **rows written** and **skipped/problem fights** from the scraper’s final log into [§F](#f-ufcstats-scrape-skips--investigation-log). If the fights CSV changed (new fights, parser fix), run **`python -m src.data.ufcstats_profiles --data-dir ./data`** so profiles cover the same ID universe.
-2. **CSV sanity** — `python -m src.data.ufcstats_gap_report --check-csv-only --data-dir ./data` (or `--fights-csv ./data/ufcstats_fights.csv`). Optionally inventory diff + diagnose if skips are non-trivial ([§F](#f-ufcstats-scrape-skips--investigation-log)).
-3. **Phase 2 smoke test** — `python main.py train --data-dir ./data`: confirm loaded fight/profile counts, training size, no broken features. One **`predict`** and one **`explain`** with real `fighter_id`s from your CSVs (`docs/todo.md` §2.1).
-4. **Quick gates** — Symmetry (swap A/B) and a light ELO sniff test (`docs/todo.md` §2.2–2.3).
-5. **Then** — Phase 3 (holdout, calibration, knob tuning) only after the smoke test is boringly stable.
+1. **Ship refit (frozen 2022 config + full Tier‑1 data)** — Load hyperparameters from **`data/phase3_eval/phase3_report.json` → `frozen_winner_config`** (or rehydrate into `Config`); run **`main.py train`** (or your train CLI) with the **intended** holdout policy for **production** (see [`docs/hyperparameter-tuning.md`](docs/hyperparameter-tuning.md) + [`docs/todo.md`](docs/todo.md) §3.1). Save a **`.pkl`** for `predict` / deployment.
+2. **Fast validation (before another multi-day 50-trial run)** — Use as **A/B** vs the full script or vs `Config()`:
+   - **Baseline only:** `run_phase3_tuning.py` **without** `--selection-search` (single `Config` walk-forward) on the same `selection-start`/`end`, compare curves to the saved `phase3_metrics.csv`.
+   - **Smaller search:** same script with **`--n-trials 10`–`20`**, and/or **narrower** `--selection-start` / `--selection-end` (e.g. 2018–2022) to see if **ranking** of winners is stable vs the 50-trial run.
+   - **OAT / one-knob** generations on **holdout** (§3.4) for cheap sensitivity — does **not** replace walk-forward, but calibrates “how much knob X moves log-loss” on a **locked** data snapshot.
+   - **Optimizer cost:** if you re-run long searches, use **`scripts/pilot_lbfgs_stopping.py`** and (later) **tuning-only** `ftol`/`gtol`/`max_iter` *after* a **ranking** spot-check, not on faith alone.
+3. **Case studies and examples** — Pristine and selection slices in `phase3_report.json` (per–weight-class). Pull **highest per-fight log-loss** fights for write-ups; see [`docs/hyperparameter-tuning.md`](docs/hyperparameter-tuning.md) §9.
+4. **Closing-line / P&L research (future)** — Historical **opening** or **pre-bell** odds (per fight, PIT) would let you test **stake** / ROI vs model probabilities (Kelly, flat stake, etc.). **Out of scope** until you have a **reproducible lines** data source; model metrics alone do not prove profitability.
 
-### Phase 3 — iterative tuning (start here)
+**Data refresh (when you bump UFCStats data):** If `ufcstats_fights.csv` / profiles change material rows, re-run [§A–B](#a-ufcstats-fights--dataufcstats_fightscsv) and treat Phase 3 as a **new campaign** (re-baseline or re-run `run_phase3_tuning` if you need comparability).
 
-Use **repeated model generations**: same **`--holdout-start`**, change **one hyperparameter** in [`src/config.py`](src/config.py), retrain with a **unique `--model-path`**, run **`eval-holdout`**, log metrics. Full protocol, rules of thumb, and optional walk-forward: **[`docs/todo.md`](docs/todo.md) §3.4**.
+---
+
+**Earlier bootstraps (satisfied for many trees; keep for a clean machine):**
+
+1. **Land CSVs you trust** — Full scraper + skip log in [§F](#f-ufcstats-scrape-skips--investigation-log). Profiles after fights file stabilizes.
+2. **CSV sanity** — `ufcstats_gap_report --check-csv-only --data-dir ./data`.
+3. **Phase 2 smoke** — `main.py train`, `scripts/phase2_smoke.py`, one `predict` / `explain` (`docs/todo.md` §2.1).
+4. **Quick gates** — Symmetry + ELO sniff (`docs/todo.md` §2.2–2.3).
+
+### Phase 3 — further tuning (after ship refit or fast A/B)
+
+Use **repeated model generations** for *single-knob* studies: same **`--holdout-start`**, change **one** field in [`src/config.py`](src/config.py), retrain with a **unique `--model-path`**, run **`eval-holdout`**, log metrics. **Full** protocol, walk-forward, and 50-trial search: [`docs/todo.md`](docs/todo.md) §3.4–3.5, [`docs/hyperparameter-tuning.md`](docs/hyperparameter-tuning.md).
 
 ```bash
-# Example generation (replace date and paths with your locked holdout and naming scheme)
+# Example OAT generation (not the multi-day walk-forward search)
 python main.py train --data-dir ./data --holdout-start 2023-01-01 --model-path ./data/Saved_Runs/phase3_baseline.pkl
 python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 ```
@@ -56,7 +77,9 @@ python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 
 1. **Data refresh cadence** — Full UFCStats fights scrape is **several hours** (~770 events + fights; README). Re-run after parser or schema changes; profiles after the fights file stabilizes.
 2. **Validation before tuning** — Log-loss and era knobs come **after** “train runs, predict runs, symmetry holds.”
-3. **Hardening** — Tests, pinned deps, post-event refresh story—after the model path is trusted.
+3. **Cheap A/B before expensive search** — The **50-trial/yr** walk-forward run is a **reference**, not a weekly habit. **Baseline** walk-forward, **10–20 trials**, or a **shorter** selection window should agree **in spirit** (stable ranking) before you burn another long wall-clock block.
+4. **Hardening** — Tests, pinned deps, post-event refresh story—after the model path is trusted.
+5. **From probabilities to P&L** — Requires **reproducible** historical **odds** at a defined decision time; out of scope for core modeling until that data exists.
 
 ---
 

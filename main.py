@@ -4,15 +4,20 @@ MMA Pre-Fight Prediction Model — Master Script
 Commands
 --------
 train   Build ELO, construct features, fit regression. Saves model to disk.
-        By default reads CSVs already in --data-dir (no refresh). Use
-        --full-rebuild to run refresh_data() first (implement in src/data/refresh.py).
+        Implementation: ``src/cli/train.py`` (same behavior as ``scripts/train_model.py``).
+        By default reads CSVs in --data-dir (no network refresh). Regression uses
+        a time holdout (default 2023-01-01) unless you pass --no-holdout. Use
+        --full-rebuild to re-scrape first, unless --no-scrape or
+        --skip-refresh-if-present. --elo-cache loads/saves a PIT ELO cache.
 predict Produce a calibrated 6-class probability distribution for a matchup.
 explain Show the exact additive decomposition of a prediction's log-odds.
 
 Usage
 -----
     python main.py train --data-dir ./data [--model-path model.pkl]
-    python main.py train --data-dir ./data --holdout-start 2023-01-01
+    python scripts/train_model.py
+    python main.py train ... --no-holdout
+    python main.py train ... --holdout-start 2022-06-01
     python main.py train --data-dir ./data --full-rebuild
     python main.py eval-holdout
     python main.py predict <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
@@ -31,111 +36,20 @@ Examples
     python main.py predict fighter_001 fighter_002 lightweight --date 2025-06-01
     python main.py explain fighter_001 fighter_002 lightweight
 """
+from __future__ import annotations
+
 import argparse
 import sys
-from datetime import date, datetime
 from pathlib import Path
 
-from src.config import Config
-from src.data.schema import WeightClass
+from src.cli.common import resolve_date, resolve_weight_class
+from src.cli.train import cmd_train, register_train_arguments
 from src.pipeline import MMAPredictor
-
-
-# ---------------------------------------------------------------------------
-# Weight class name resolution
-# ---------------------------------------------------------------------------
-
-_WC_ALIASES = {
-    "strawweight":       WeightClass.STRAWWEIGHT,
-    "straw":             WeightClass.STRAWWEIGHT,
-    "flyweight":         WeightClass.FLYWEIGHT,
-    "fly":               WeightClass.FLYWEIGHT,
-    "bantamweight":      WeightClass.BANTAMWEIGHT,
-    "bantam":            WeightClass.BANTAMWEIGHT,
-    "featherweight":     WeightClass.FEATHERWEIGHT,
-    "feather":           WeightClass.FEATHERWEIGHT,
-    "lightweight":       WeightClass.LIGHTWEIGHT,
-    "light":             WeightClass.LIGHTWEIGHT,
-    "welterweight":      WeightClass.WELTERWEIGHT,
-    "welter":            WeightClass.WELTERWEIGHT,
-    "middleweight":      WeightClass.MIDDLEWEIGHT,
-    "middle":            WeightClass.MIDDLEWEIGHT,
-    "light_heavyweight": WeightClass.LIGHT_HEAVYWEIGHT,
-    "lhw":               WeightClass.LIGHT_HEAVYWEIGHT,
-    "heavyweight":       WeightClass.HEAVYWEIGHT,
-    "heavy":             WeightClass.HEAVYWEIGHT,
-    "hw":                WeightClass.HEAVYWEIGHT,
-    "w_strawweight":     WeightClass.W_STRAWWEIGHT,
-    "w_straw":           WeightClass.W_STRAWWEIGHT,
-    "w_flyweight":       WeightClass.W_FLYWEIGHT,
-    "w_fly":             WeightClass.W_FLYWEIGHT,
-    "w_bantamweight":    WeightClass.W_BANTAMWEIGHT,
-    "w_bantam":          WeightClass.W_BANTAMWEIGHT,
-    "w_featherweight":   WeightClass.W_FEATHERWEIGHT,
-    "w_feather":         WeightClass.W_FEATHERWEIGHT,
-}
-
-
-def resolve_weight_class(raw: str) -> WeightClass:
-    wc = _WC_ALIASES.get(raw.strip().lower().replace("-", "_").replace(" ", "_"))
-    if wc is None:
-        valid = sorted(set(_WC_ALIASES.keys()))
-        print(f"Unknown weight class: {raw!r}")
-        print(f"Valid options: {', '.join(valid)}")
-        sys.exit(1)
-    return wc
-
-
-def resolve_date(raw=None) -> date:
-    if raw is None:
-        return date.today()
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").date()
-    except ValueError:
-        print(f"Invalid date format: {raw!r}  (expected YYYY-MM-DD)")
-        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
-
-def cmd_train(args: argparse.Namespace) -> None:
-    data_dir = Path(args.data_dir)
-    model_path = Path(args.model_path)
-
-    if args.full_rebuild:
-        from src.data.refresh import refresh_data
-
-        print(f"Refreshing data -> {data_dir} ...")
-        refresh_data(data_dir)
-
-    if not data_dir.exists():
-        print(f"Data directory not found: {data_dir}")
-        sys.exit(1)
-
-    config = Config()
-    if getattr(args, "holdout_start", None):
-        config.holdout_start_date = resolve_date(args.holdout_start)
-    predictor = MMAPredictor(config)
-
-    print(f"Stage 1: Loading data from {data_dir} ...")
-    predictor.load_data(data_dir)
-    print(f"  {len(predictor.fights):,} fight records loaded.")
-    print(f"  {len(predictor.profiles):,} fighter profiles loaded.")
-
-    print("Stage 2: Building ELO on full fight history ...")
-    predictor.build_elo()
-    print("  ELO construction complete.")
-
-    print("Stages 3–5: Style features (per row) + multinomial regression ...")
-    predictor.train_regression()
-    n_train = len(predictor._y_train) if predictor._y_train is not None else 0
-    print(f"  Training rows used: {n_train:,} decisive post-era fights.")
-
-    print(f"Saving model -> {model_path}")
-    predictor.save(model_path)
-    print("Done.\n")
 
 
 def cmd_eval_holdout(args: argparse.Namespace) -> None:
@@ -143,9 +57,9 @@ def cmd_eval_holdout(args: argparse.Namespace) -> None:
     predictor = _load_or_exit(Path(mp))
     if predictor.config.holdout_start_date is None:
         print(
-            "This model has holdout_start_date=None (trained without a holdout cut).\n"
-            "Re-train with:  python main.py train --data-dir ./data "
-            "--holdout-start YYYY-MM-DD",
+            "This model has holdout_start_date=None (trained with --no-holdout).\n"
+            "Re-train with a time holdout (default) or:  "
+            "python main.py train --data-dir ./data --holdout-start YYYY-MM-DD",
         )
         sys.exit(1)
     from src.eval.holdout_metrics import run_holdout_eval
@@ -188,10 +102,11 @@ def cmd_explain(args: argparse.Namespace) -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_or_exit(model_path: Path) -> MMAPredictor:
     if not model_path.exists():
         print(f"No trained model found at {model_path}.")
-        print("Run:  python main.py train --data-dir ./data")
+        print("Run:  python main.py train --data-dir ./data  or  python scripts/train_model.py")
         sys.exit(1)
     return MMAPredictor.load(model_path)
 
@@ -199,6 +114,7 @@ def _load_or_exit(model_path: Path) -> MMAPredictor:
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -215,30 +131,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # train
     p_train = sub.add_parser(
         "train",
-        help="Train from CSVs in --data-dir (default: use existing files; no refresh)",
+        help="Train from CSVs in --data-dir. Default: time holdout (see --holdout-start / --no-holdout).",
     )
-    p_train.add_argument(
-        "--data-dir", default="./data",
-        help="Directory containing data CSVs (default: ./data)",
-    )
-    p_train.add_argument(
-        "--full-rebuild",
-        action="store_true",
-        help="Call refresh_data() first to repopulate CSVs, then train (see src/data/refresh.py)",
-    )
-    p_train.add_argument(
-        "--holdout-start",
-        default=None,
-        metavar="YYYY-MM-DD",
-        help="Exclude Tier-1 fights on/after this date from regression training (saved in model for eval-holdout)",
-    )
+    register_train_arguments(p_train)
 
     p_eval = sub.add_parser(
         "eval-holdout",
-        help="Mean log-loss, Brier, accuracy on holdout (requires train --holdout-start)",
+        help="Log-loss, Brier, accuracy on the holdout slice (model must have a time holdout unless legacy).",
     )
     p_eval.add_argument(
         "--model-path",
@@ -248,7 +149,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model pickle (overrides top-level --model-path if set)",
     )
 
-    # predict
     p_pred = sub.add_parser("predict", help="Predict fight outcome probabilities")
     p_pred.add_argument("fighter_a", help="Fighter A identifier")
     p_pred.add_argument("fighter_b", help="Fighter B identifier")
@@ -258,7 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fight date as YYYY-MM-DD (default: today)",
     )
 
-    # explain
     p_exp = sub.add_parser("explain", help="Print log-odds decomposition for a matchup")
     p_exp.add_argument("fighter_a", help="Fighter A identifier")
     p_exp.add_argument("fighter_b", help="Fighter B identifier")
@@ -274,6 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 if __name__ == "__main__":
     parser = build_parser()

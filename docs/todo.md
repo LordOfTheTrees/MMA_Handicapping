@@ -275,6 +275,17 @@ Phase 3 tuning is **not** a one-shot train: you run **repeated model generations
 
 **Optional outer loop:** After a single holdout is stable, add **expanding walk-forward** (train through year *Y*, score *Y+1*) for drift — see [`validation-and-few-shot.md`](validation-and-few-shot.md). That is separate from the first pass of §3.4.
 
+### 3.5 Walk-forward + random search (completed) and next steps
+
+A **first full** run of the script harness (random search per **selection** year, then **pristine** 2023–2025 with the **frozen** last-year winner) has been **completed**; outputs live under **`data/phase3_eval/`** (see [`hyperparameter-tuning.md`](hyperparameter-tuning.md) and ADR-20 in [`architecture-decisions.md`](architecture-decisions.md)). Use that directory as the **reference** for any **faster** validation you run next (fewer trials, shorter year span, or baseline-only walk-forward) — compare **mean log-loss** and qualitative **winner stability**, not a single new number in isolation.
+
+**Next (operational, not a second mandatory 50-trial/yr run unless you need it):**
+
+- **Ship refit** — Rehydrate **`frozen_winner_config`** from `phase3_report.json` into `Config` and **train** for deployment; align **`holdout_start_date`** with your real **use case** (see §3.1).
+- **Fast A/B** — `run_phase3_tuning.py` with **smaller** `--n-trials` or **narrower** selection block **vs** the saved `phase3_metrics.csv`, or **baseline** walk-forward without `--selection-search`, to see whether rankings are **stable** under a cheaper budget.
+- **Case studies** — See [`hyperparameter-tuning.md`](hyperparameter-tuning.md) §9: pull **worst** per-fight log-loss bouts (by weight class) from the pristine report payload for **examples and narrative** debugging.
+- **P&L / CLV (later)** — With **time-stamped** historical **odds** (e.g. **closing** or **opening** at your decision time), you can backtest **edge** and stake rules; the model’s log-loss on outcomes alone does **not** imply profitability.
+
 ---
 
 ## Phase 4 — Model Hardening

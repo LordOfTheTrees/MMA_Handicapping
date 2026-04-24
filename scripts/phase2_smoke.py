@@ -29,9 +29,9 @@ from src.pipeline import MMAPredictor  # noqa: E402
 
 
 def _resolve_wc(raw: str) -> WeightClass:
-    import main as mma_main  # noqa: E402
+    from src.cli.common import resolve_weight_class  # noqa: E402
 
-    return mma_main.resolve_weight_class(raw)
+    return resolve_weight_class(raw)
 
 
 def _wc_from_csv_cell(cell: str) -> WeightClass:

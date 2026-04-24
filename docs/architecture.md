@@ -335,7 +335,7 @@ Reference: 6 similar fights | Mixed eras | ⚠ Interpret with caution
 
 ## 10. Open Design Questions
 
-The following parameters require **empirical tuning against holdout prediction performance** (Phase 3) and are not specified a priori. The **authoritative Phase 3 inventory** — including **`Config.master_start_year`** (regression calendar floor), **all ELO levers**, **train/holdout split** (once implemented), and **model thresholds/weights** — lives in [`docs/todo.md`](docs/todo.md) §**3.3 Phase 3 tuning inventory**.
+The following parameters require **empirical tuning against holdout prediction performance** (Phase 3) and are not specified a priori. The **authoritative Phase 3 inventory** — including **`Config.master_start_year`** (regression calendar floor), **all ELO levers**, **train/holdout split** (once implemented), and **model thresholds/weights** — lives in [`docs/todo.md`](docs/todo.md) §**3.3 Phase 3 tuning inventory**. The **tuning *procedure*** (time splits, random search, walk-forward, pristine block) is documented in [`docs/hyperparameter-tuning.md`](hyperparameter-tuning.md).
 
 Summary (see §3.3 for the full table):
 

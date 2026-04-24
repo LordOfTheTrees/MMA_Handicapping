@@ -225,12 +225,22 @@ per corner from **global** days since last fight to predict date. **No** discret
 
 ---
 
+## ADR-20: Phase 3 walk-forward + per-year random search + frozen winner on pristine
+
+**Context.** Iterative OAT in [`docs/todo.md`](todo.md) §3.4 is too slow to explore a **high-dimensional** joint `Config` space. We needed: (1) an **outer** year-by-year walk-forward over a **selection** block, (2) **inner/forward** log-loss to rank trials, (3) a **pristine** calendar strip (e.g. 2023–2025) that uses **no** in-year tuning — only a **configuration frozen** from the end of the selection block (e.g. **2022** search winner) so “true” OOS is not used to pick hyperparameters.
+
+**Decision.** Implement the harness in [`src/eval/tuning_harness.py`](../src/eval/tuning_harness.py), invoked by [`scripts/run_phase3_tuning.py`](../scripts/run_phase3_tuning.py) with optional **`--selection-search`** (`--n-trials` per outer year, default **50**; warm-start chain; inner window **`--inner-last-k`** or full inner). Write **`data/phase3_eval/phase3_report.json`**, metrics CSV, plots, and optional **`elo_walkforward_cache.pkl`**. **Serialization choice:** the report stores the **2022 (last selection year) winner** as **`frozen_winner_config`**, **`trial_rows`** (log-loss by trial id only, not full `Config` per trial), and **`selection_campaign`** per-year metadata — **not** a full record of every sampled hyperparameter vector across years.
+
+**Consequences.** A **full** 50-trial/yr run is a **long** wall-time commitment (ELO + repeated multinomial fits). For **A/B** without repeating that cost: run **baseline** walk-forward (no search), or **reduced** `--n-trials` / **narrower** selection years, and compare ranking or pristine deltas to the saved `phase3_metrics.csv` / JSON. **Production ship:** rehydrate **`frozen_winner_config`** (or the nested dict from JSON) into `Config` and run **`train`** with the **intended** deploy holdout / snapshot policy; do not treat `holdout_start_date` inside a frozen copy as binding without re-reading `docs/todo.md` §3.1. **Economic** evaluation (ROI vs book odds) is **out of scope** of this ADR; needs historical lines data.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
 - **Manual pedigree** fill vs. leaving zeros for cold starts.
 - **Legacy result-only** UFCStats rows without sig-strike tables.
-- **Holdout design** and calibration tuning (Phase 3+ per `todo.md`).
+- **Production holdout** policy vs tuning scripts (per-run choice; see `todo.md` §3.1, ADR-20) — *Phase 3 walk-forward design* is no longer an open “whether” (ADR-20); **stake/ROI** vs closing lines is still deferred.
 
 ---
 
@@ -240,7 +250,8 @@ per corner from **global** days since last fight to predict date. **No** discret
 |----------|------|
 | [`architecture.md`](architecture.md) | End-to-end modeling and pipeline design |
 | [`todo.md`](todo.md) | Phases, column specs, validation checklist |
-| [`../TODO.md`](../TODO.md) | Current status, next work bout, gap-report commands |
+| [`../TODO.md`](../TODO.md) | Roadmap, next work bout, gap-report commands |
+| [`hyperparameter-tuning.md`](hyperparameter-tuning.md) | Walk-forward search, pristine, case studies (§9) |
 | [`validation-and-few-shot.md`](validation-and-few-shot.md) | Time holdout, grouped CV, few-shot / cold-start knobs |
 | [`elo-tuning-knobs.md`](elo-tuning-knobs.md) | What each ELO / Kalman parameter does when you change it |
 | [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md) | Why we amplify (not damp) ELO updates after a layoff — ADR-16 framing |

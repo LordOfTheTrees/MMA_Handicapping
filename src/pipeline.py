@@ -17,6 +17,7 @@ Typical usage:
     predictor.train_regression()
     result = predictor.predict("fighter_a_id", "fighter_b_id", WeightClass.LIGHTWEIGHT, date.today())
 """
+import dataclasses
 import pickle
 from datetime import date
 from pathlib import Path
@@ -24,7 +25,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .config import Config
+from .config import Config, ELOConfig
 from .data.loader import (
     filter_tier1_post_era, load_fighter_profiles, load_major_promotion_fights,
     load_sherdog_fights, load_ufcstats_fights, sort_fights_chronologically,
@@ -188,6 +189,55 @@ class MMAPredictor:
         )
         return self
 
+    _ELO_CACHE_VERSION = 1
+
+    @staticmethod
+    def _elo_config_signature(elo: ELOConfig) -> dict:
+        """JSON-serializable dict for cache validation (ELOConfig only)."""
+        d = dataclasses.asdict(elo)
+        # Stabilize tier_discount key order for comparison
+        d["tier_discount"] = {int(k): float(v) for k, v in sorted(d["tier_discount"].items())}
+        return d
+
+    def try_load_elo_from_cache(self, path: Path) -> bool:
+        """
+        Load a serialized ELO model from *path* if it exists, matches
+        ``len(self.fights)``, and matches current ``config.elo``.
+
+        Returns True if the cache was applied; False if missing or stale.
+        """
+        path = Path(path)
+        if not path.exists():
+            return False
+        with open(path, "rb") as f:
+            blob = pickle.load(f)
+        if not isinstance(blob, dict) or blob.get("_elo_cache_v") != self._ELO_CACHE_VERSION:
+            return False
+        if blob.get("n_fights") != len(self.fights):
+            return False
+        cur_sig = self._elo_config_signature(self.config.elo)
+        if blob.get("elo_config_sig") != cur_sig:
+            return False
+        self.elo_model = blob["elo_model"]
+        return True
+
+    def save_elo_cache(self, path: Path) -> None:
+        """Write ELO state for ``try_load_elo_from_cache`` (after ``build_elo``)."""
+        if self.elo_model is None:
+            raise RuntimeError("build_elo() before save_elo_cache()")
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(
+                {
+                    "_elo_cache_v": self._ELO_CACHE_VERSION,
+                    "n_fights": len(self.fights),
+                    "elo_config_sig": self._elo_config_signature(self.config.elo),
+                    "elo_model": self.elo_model,
+                },
+                f,
+            )
+
     # ------------------------------------------------------------------
     # Stage 3: Style axis query (per fighter, per date)
     # ------------------------------------------------------------------
@@ -262,6 +312,7 @@ class MMAPredictor:
         self,
         *,
         matrix_progress_every: int = 500,
+        fit_model: bool = True,
     ) -> "MMAPredictor":
         """
         Build the training feature matrix from Tier 1 post-era fights and fit
@@ -270,6 +321,9 @@ class MMAPredictor:
         Sample weights are recency-based: fights closer to today are weighted
         higher, reflecting that more recent data comes from a more similar
         distribution to future fights.
+
+        If *fit_model* is False, only the training matrix and weights are built;
+        no L-BFGS or bootstrap. Used by pilot / diagnostics to reuse *X* / *y*.
         """
         if self.elo_model is None:
             raise RuntimeError("Call build_elo() before train_regression().")
@@ -343,6 +397,13 @@ class MMAPredictor:
         self._y_train = np.array(y_rows, dtype=int)
         self._train_weights = np.array(w_rows)
 
+        if not fit_model:
+            print(
+                f"  [train] matrix shape {self._X_train.shape}  (fit_model=False: skip L-BFGS, skip bootstrap)\n",
+                flush=True,
+            )
+            return self
+
         print(
             f"  [train] matrix shape {self._X_train.shape}, fitting multinomial regression ...",
             flush=True,
@@ -355,10 +416,26 @@ class MMAPredictor:
         self.regression.fit(self._X_train, self._y_train, verbose=True)
 
         eff_n = effective_sample_size(self._train_weights)
+        cauchy_th = self.config.model.cauchy_fallback_threshold
+        n_bootstrap = self.config.model.n_bootstrap
         self._bootstrap_W = None
-        if eff_n >= self.config.model.cauchy_fallback_threshold:
+
+        if eff_n < cauchy_th:
             print(
-                "  [train] bootstrap resamples (store coefficient draws for prediction CIs) ...",
+                f"  [train] after point fit: no weighted bootstrap  "
+                f"(ESS {eff_n:.1f} < cauchy_fallback_threshold {cauchy_th:g}; "
+                "CIs at predict use Cauchy ELO / point path).",
+                flush=True,
+            )
+        elif n_bootstrap <= 0:
+            print(
+                f"  [train] after point fit: no bootstrap resamples  (n_bootstrap={n_bootstrap}).",
+                flush=True,
+            )
+        else:
+            print(
+                f"  [train] after point fit: running {n_bootstrap} bootstrap resamples  "
+                f"(ESS {eff_n:.1f} >= {cauchy_th:g}, store coefficient draws for CIs) ...",
                 flush=True,
             )
             W_stack, n_valid = fit_bootstrap_coefficients(
@@ -620,7 +697,9 @@ class MMAPredictor:
                     int(legacy) if legacy is not None else 2005,
                 )
             if not hasattr(cfg, "holdout_start_date"):
-                object.__setattr__(cfg, "holdout_start_date", None)
+                from .config import DEFAULT_HOLDOUT_START_DATE
+
+                object.__setattr__(cfg, "holdout_start_date", DEFAULT_HOLDOUT_START_DATE)
             _migrate_model_config_elo_mc_fields(getattr(cfg, "model", None))
 
     @classmethod

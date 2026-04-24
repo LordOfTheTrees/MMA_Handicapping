@@ -186,12 +186,16 @@ class MultinomialLogisticModel:
         max_iter: int = 3000,
         *,
         verbose: bool = False,
+        ftol: float = 1e-12,
+        gtol: float = 1e-7,
     ) -> "MultinomialLogisticModel":
         """
         Fit coefficients using L-BFGS-B.
 
         X : (n_samples, n_features)  float
         y : (n_samples,)             int in [0, N_CLASSES)
+        ftol, gtol : passed to ``scipy.optimize.minimize`` (L-BFGS-B). Tuning / pilot
+            can relax these; defaults match historical behavior.
         """
         init_params = np.zeros(N_CLASSES * self.n_features)
 
@@ -201,7 +205,7 @@ class MultinomialLogisticModel:
             args=(X, y, self.delta, self.l2_lambda),
             method="L-BFGS-B",
             jac=True,
-            options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-7},
+            options={"maxiter": max_iter, "ftol": ftol, "gtol": gtol},
         )
 
         if verbose:
@@ -209,6 +213,11 @@ class MultinomialLogisticModel:
             print(
                 f"  [regression] L-BFGS-B finished ({ok}): "
                 f"n_iter={result.nit}, message={result.message}",
+                flush=True,
+            )
+            print(
+                f"  [regression]   final robust NLL: {result.fun:.6f}  "
+                f"scipy success={result.success}",
                 flush=True,
             )
 
