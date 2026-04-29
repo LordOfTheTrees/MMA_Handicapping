@@ -50,9 +50,13 @@ from .model.regression import (
     format_coefficient_importance_report,
 )
 from .confidence.intervals import (
+    _resolve_bootstrap_max_workers,
     compute_prediction_ci, effective_sample_size, fit_bootstrap_coefficients,
     format_prediction_table,
 )
+
+# Completed-resample progress lines during train bootstrap and verbose legacy CI refits.
+BOOTSTRAP_PROGRESS_EVERY = 10
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +95,8 @@ def _migrate_model_config_lbfgs_fields(model: Optional[object]) -> None:
     for key, val in defaults.items():
         if not hasattr(model, key):
             object.__setattr__(model, key, val)
+    if not hasattr(model, "bootstrap_max_workers"):
+        object.__setattr__(model, "bootstrap_max_workers", None)
 
 
 # ---------------------------------------------------------------------------
@@ -472,9 +478,15 @@ class MMAPredictor:
                 flush=True,
             )
         else:
+            mw_effective = _resolve_bootstrap_max_workers(self.config.model, n_bootstrap, None)
+            if mw_effective > 1:
+                extra = f" (parallel, up to {mw_effective} workers)"
+            else:
+                extra = " (serial)"
             print(
-                f"  [train] after point fit: running {n_bootstrap} bootstrap resamples  "
-                f"(ESS {eff_n:.1f} >= {cauchy_th:g}, store coefficient draws for CIs) ...",
+                f"  [train] after point fit: running {n_bootstrap} bootstrap resamples "
+                f"(ESS {eff_n:.1f} >= {cauchy_th:g}, store coefficient draws for CIs)"
+                f"{extra}.",
                 flush=True,
             )
             W_stack, n_valid = fit_bootstrap_coefficients(
@@ -482,7 +494,7 @@ class MMAPredictor:
                 self._y_train,
                 self._train_weights,
                 self.config.model,
-                progress_every=40,
+                progress_every=BOOTSTRAP_PROGRESS_EVERY,
             )
             if n_valid >= 10:
                 self._bootstrap_W = W_stack
@@ -537,11 +549,20 @@ class MMAPredictor:
         wc: WeightClass,
         fight_date: date,
         verbose: bool = True,
+        *,
+        hypothetical_days_idle_a: Optional[int] = None,
+        hypothetical_days_idle_b: Optional[int] = None,
     ) -> PredictionResult:
         """
         Produce a calibrated 6-class prediction with confidence intervals.
 
         verbose=True prints the formatted output table to stdout.
+
+        hypothetical_days_idle_a / hypothetical_days_idle_b: when set (calendar days idle
+        assumed for **that corner** toward ``fight_date``), replace measured global idle days
+        only for **Cauchy-ELO Monte Carlo γ** (confidence-interval width). Point probabilities,
+        Kalman-expanded ELO used in features, and style axes remain from observed history through
+        ``fight_date``.
         """
         if self.regression is None:
             raise RuntimeError("Call train_regression() before predict().")
@@ -567,17 +588,35 @@ class MMAPredictor:
             and bootstrap_W.size > 0
             and bootstrap_W.shape[0] >= 10
         )
-        bootstrap_progress_every = 0 if use_stored else (40 if verbose else 0)
+        bootstrap_progress_every = 0 if use_stored else (BOOTSTRAP_PROGRESS_EVERY if verbose else 0)
         use_elo_mc = (
             self.config.model.elo_mc_n_draws > 0
             and not force_cauchy_wc_debut
         )
-        days_idle_a = self.elo_model.days_since_last_fight_global(fighter_a_id, fight_date)
-        days_idle_b = self.elo_model.days_since_last_fight_global(fighter_b_id, fight_date)
+        days_hist_a = self.elo_model.days_since_last_fight_global(fighter_a_id, fight_date)
+        days_hist_b = self.elo_model.days_since_last_fight_global(fighter_b_id, fight_date)
+        days_idle_a = (
+            max(0, int(hypothetical_days_idle_a))
+            if hypothetical_days_idle_a is not None
+            else days_hist_a
+        )
+        days_idle_b = (
+            max(0, int(hypothetical_days_idle_b))
+            if hypothetical_days_idle_b is not None
+            else days_hist_b
+        )
         gamma_a = self.config.model.elo_mc_gamma_for_days_idle(days_idle_a)
         gamma_b = self.config.model.elo_mc_gamma_for_days_idle(days_idle_b)
         W_point = self.regression.W
 
+        if verbose and (
+            hypothetical_days_idle_a is not None or hypothetical_days_idle_b is not None
+        ):
+            print(
+                f"  [predict] hypothetical idle for Cauchy gamma - A:{days_idle_a} d (historical "
+                f"{days_hist_a} d); B:{days_idle_b} d (historical {days_hist_b} d)",
+                flush=True,
+            )
         if verbose:
             if force_cauchy_wc_debut:
                 print(
@@ -586,8 +625,8 @@ class MMAPredictor:
                 )
             elif use_stored and use_elo_mc:
                 print(
-                    f"  [predict] CIs: {bootstrap_W.shape[0]} bootstrap W × "
-                    f"{self.config.model.elo_mc_n_draws} Cauchy ELO draws (γ) ...",
+                    f"  [predict] CIs: {bootstrap_W.shape[0]} bootstrap W x "
+                    f"{self.config.model.elo_mc_n_draws} Cauchy ELO draws (gamma) ...",
                     flush=True,
                 )
             elif use_stored:
@@ -604,7 +643,7 @@ class MMAPredictor:
                     if bootstrap_progress_every
                     else ""
                 )
-                _elo_suffix = " + Cauchy ELO (γ) per resample" if use_elo_mc else ""
+                _elo_suffix = " + Cauchy ELO (gamma) per resample" if use_elo_mc else ""
                 print(
                     f"  [predict] bootstrap CIs ({self.config.model.n_bootstrap} resamples{prog}) "
                     f"(legacy path; retrain to cache draws){_elo_suffix} ...",
@@ -635,6 +674,9 @@ class MMAPredictor:
             elo_mc_gamma_a=elo_ga,
             elo_mc_gamma_b=elo_gb,
             W_point=W_point,
+            bootstrap_max_workers=getattr(
+                self.config.model, "bootstrap_max_workers", None
+            ),
         )
 
         if verbose:

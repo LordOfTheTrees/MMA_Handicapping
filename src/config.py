@@ -63,6 +63,9 @@ class ModelConfig:
     # RNG seed for weighted bootstrap resamples (reproducible CIs after retrain).
     bootstrap_seed: int = 42
 
+    # Parallel L-BFGS refits: None = min(n_bootstrap, cpu_count-1); 1 = serial.
+    bootstrap_max_workers: Optional[int] = None
+
     # Two-sided confidence level for intervals (0.10 → 90% CI).
     ci_alpha: float = 0.10
 

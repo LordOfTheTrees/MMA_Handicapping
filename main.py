@@ -4,7 +4,7 @@ MMA Pre-Fight Prediction Model — Master Script
 Commands
 --------
 train   Build ELO, construct features, fit regression. Saves model to disk.
-        Implementation: ``src/cli/train.py`` (same behavior as ``scripts/train_model.py``).
+        Implementation: ``src/cli/train.py`` (``main.py train`` or ``python -m src.cli.train``).
         By default reads CSVs in --data-dir (no network refresh). Regression uses
         a time holdout (default 2023-01-01) unless you pass --no-holdout. Use
         --full-rebuild to re-scrape first, unless --no-scrape or
@@ -16,7 +16,7 @@ predict-human  Interactive predict: look up fighters by name (fuzzy), pick past 
 Usage
 -----
     python main.py train --data-dir ./data [--model-path model.pkl]
-    python scripts/train_model.py
+    python -m src.cli.train --data-dir ./data --model-path model.pkl
     python main.py train ... --no-holdout
     python main.py train ... --holdout-start 2022-06-01
     python main.py train --data-dir ./data --full-rebuild
@@ -111,7 +111,7 @@ def cmd_explain(args: argparse.Namespace) -> None:
 def _load_or_exit(model_path: Path) -> MMAPredictor:
     if not model_path.exists():
         print(f"No trained model found at {model_path}.")
-        print("Run:  python main.py train --data-dir ./data  or  python scripts/train_model.py")
+        print("Run:  python main.py train --data-dir ./data   or   python -m src.cli.train")
         sys.exit(1)
     return MMAPredictor.load(model_path)
 

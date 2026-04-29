@@ -13,7 +13,7 @@ CSV/JSON output, and simple matplotlib figures. See ``docs/hyperparameter-tuning
 
 From repo root::
 
-    python scripts/run_phase3_tuning.py --data-dir ./data --out-dir ./data/phase3_eval
+    python -m src.cli.run_phase3_tuning --data-dir ./data --out-dir ./data/phase3_eval
 
 ELO is cached under ``<out-dir>/elo_walkforward_cache.pkl`` by default to speed folds.
 """
@@ -31,13 +31,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.config import Config  # noqa: E402
-from src.eval.fight_scoring import Tier1SliceScore  # noqa: E402
-from src.eval.tuning_harness import (  # noqa: E402
+from src.config import Config
+from src.eval.fight_scoring import Tier1SliceScore
+from src.eval.tuning_harness import (
     first_valid_outer_eval_year,
     make_trial_progress_bar,
     run_pristine_years,
@@ -45,7 +41,7 @@ from src.eval.tuning_harness import (  # noqa: E402
     run_selection_campaign_with_search,
     run_selection_walkforward_baseline,
 )
-from src.eval.tuning_plots import (  # noqa: E402
+from src.eval.tuning_plots import (
     plot_combined_log_loss_trajectory,
     plot_pristine_yoy_bars,
 )

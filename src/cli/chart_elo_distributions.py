@@ -7,7 +7,7 @@ Uses the same pipeline as training but stops after ``build_elo``. Point ELO is
 
 Usage (repo root)::
 
-    python scripts/chart_elo_distributions.py --data-dir ./data --top-n 15
+    python -m src.cli.chart_elo_distributions --data-dir ./data --top-n 15
 
 Default output is ``data/elo_by_division.png``. Any existing file at that path is **removed**
 before writing so ``data/`` never keeps a stale chart (copy the PNG aside first if you want
@@ -23,13 +23,11 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from src.config import Config
+from src.data.schema import WeightClass
+from src.pipeline import MMAPredictor
 
-from src.config import Config  # noqa: E402
-from src.data.schema import WeightClass  # noqa: E402
-from src.pipeline import MMAPredictor  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _fight_pairs(predictor: MMAPredictor) -> set[tuple[str, WeightClass]]:
@@ -97,11 +95,11 @@ def main() -> int:
     import matplotlib.pyplot as plt
 
     ap = argparse.ArgumentParser(description="Histogram ELO by weight class")
-    ap.add_argument("--data-dir", type=Path, default=ROOT / "data")
+    ap.add_argument("--data-dir", type=Path, default=_REPO_ROOT / "data")
     ap.add_argument(
         "--out",
         type=Path,
-        default=ROOT / "data" / "elo_by_division.png",
+        default=_REPO_ROOT / "data" / "elo_by_division.png",
         help="PNG path (default: data/elo_by_division.png under repo root; overwrites)",
     )
     ap.add_argument("--as-of", type=str, default=None, help="YYYY-MM-DD (default: today)")

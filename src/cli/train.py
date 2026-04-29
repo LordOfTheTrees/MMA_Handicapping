@@ -1,5 +1,5 @@
 """
-Training command: shared by ``main.py train`` and ``scripts/train_model.py``.
+Training command: ``main.py train`` and ``python -m src.cli.train`` (same flags; module adds top-level ``--model-path``).
 """
 from __future__ import annotations
 
@@ -55,16 +55,23 @@ def register_train_arguments(p: argparse.ArgumentParser) -> None:
         help=f"Exclude Tier-1 fights on/after this date from regression training. "
         f"Default in Config: {DEFAULT_HOLDOUT_START_DATE} (if --no-holdout is not set).",
     )
+    p.add_argument(
+        "--bootstrap-max-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Bootstrap L-BFGS worker processes (default from ModelConfig.bootstrap_max_workers; "
+        "unset means min(n_bootstrap, cpu_count-1); 1 forces serial).",
+    )
 
 
 def build_train_parser() -> argparse.ArgumentParser:
     """
-    Top-level parser for the dedicated training script (``scripts/train_model.py``).
-    Equivalent to ``main.py train`` plus top-level ``--model-path``.
+    Parser for ``python -m src.cli.train``: same train flags as ``main.py train`` plus top-level ``--model-path``.
     """
     p = argparse.ArgumentParser(
-        prog="train_model.py",
-        description="Train the MMA model. Same as: python main.py train ...",
+        prog="python -m src.cli.train",
+        description="Train the MMA model. Same flags as: python main.py train",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
@@ -114,6 +121,9 @@ def cmd_train(args: argparse.Namespace) -> None:
             f"  Holdout: exclude Tier-1 training rows with fight_date >= {hsd} "
             f"(default {DEFAULT_HOLDOUT_START_DATE}; override with --holdout-start).",
         )
+    if getattr(args, "bootstrap_max_workers", None) is not None:
+        config.model.bootstrap_max_workers = int(args.bootstrap_max_workers)
+
     predictor = MMAPredictor(config)
 
     print(f"Stage 1: Loading data from {data_dir} ...")
@@ -151,3 +161,12 @@ def cmd_train(args: argparse.Namespace) -> None:
     print(f"Saving model -> {model_path}")
     predictor.save(model_path)
     print("Done.\n")
+
+
+def main() -> None:
+    args = build_train_parser().parse_args()
+    cmd_train(args)
+
+
+if __name__ == "__main__":
+    main()

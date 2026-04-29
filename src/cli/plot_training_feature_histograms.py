@@ -5,8 +5,8 @@ Plot per-feature histograms for the Tier-1 **regression training** matrix rows
 
 Usage (from repo root)::
 
-    python scripts/plot_training_feature_histograms.py --data-dir ./data
-    python scripts/plot_training_feature_histograms.py --data-dir ./data \\
+    python -m src.cli.plot_training_feature_histograms --data-dir ./data
+    python -m src.cli.plot_training_feature_histograms --data-dir ./data \\
         --elo-cache ./data/elo_cache.pkl --out-dir ./data/figures/feature_histograms
 
 Requires matplotlib.
@@ -14,12 +14,7 @@ Requires matplotlib.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 import matplotlib
 

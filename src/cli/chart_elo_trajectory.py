@@ -10,9 +10,9 @@ weight class (same as :meth:`ELOModel.get_elo` at fight day without lookahead).
 
 Usage (repo root)::
 
-    python scripts/chart_elo_trajectory.py --data-dir ./data --name "Jon Jones"
-    python scripts/chart_elo_trajectory.py --data-dir ./data --fighter-id <uuid> --weight-class lightweight
-    python scripts/chart_elo_trajectory.py --data-dir ./data --export-all ./data/elo_trajectories --max-files 200
+    python -m src.cli.chart_elo_trajectory --data-dir ./data --name "Jon Jones"
+    python -m src.cli.chart_elo_trajectory --data-dir ./data --fighter-id <uuid> --weight-class lightweight
+    python -m src.cli.chart_elo_trajectory --data-dir ./data --export-all ./data/elo_trajectories --max-files 200
 """
 from __future__ import annotations
 
@@ -20,21 +20,19 @@ import argparse
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.config import Config  # noqa: E402
-from src.data.fighter_names import require_fighter_id  # noqa: E402
-from src.data.schema import WeightClass  # noqa: E402
-from src.elo.trajectory_charts import (  # noqa: E402
+from src.config import Config
+from src.data.fighter_names import require_fighter_id
+from src.data.schema import WeightClass
+from src.elo.trajectory_charts import (
     TrajectoryPoints,
     export_all_trajectory_charts,
     plot_elo_trajectories_overlay,
     plot_elo_trajectory,
     save_trajectory_figure,
 )
-from src.pipeline import MMAPredictor  # noqa: E402
+from src.pipeline import MMAPredictor
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Reuse the same aliases as main.py (avoid importing main as a module).
 _WC_ALIASES = {
@@ -105,8 +103,8 @@ def _series_for_fighter(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Plot ELO trajectory (requires trajectory recording during ELO build)")
-    ap.add_argument("--data-dir", type=Path, default=ROOT / "data")
-    ap.add_argument("--out", type=Path, default=ROOT / "data" / "elo_trajectory.png")
+    ap.add_argument("--data-dir", type=Path, default=_REPO_ROOT / "data")
+    ap.add_argument("--out", type=Path, default=_REPO_ROOT / "data" / "elo_trajectory.png")
     ap.add_argument("--fighter-id", type=str, default=None)
     ap.add_argument("--name", type=str, default=None, help="Exact profile name (case-insensitive); needs fighter_profiles.csv")
     ap.add_argument(

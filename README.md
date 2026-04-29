@@ -26,10 +26,11 @@ Design detail lives in [`docs/architecture.md`](docs/architecture.md). **CLI fla
 |------|------|
 | [`main.py`](main.py) | CLI: **`train`**, **`predict`**, **`explain`**, **`eval-holdout`**, **`predict-human`** |
 | [`src/pipeline.py`](src/pipeline.py) | `MMAPredictor`: load data → ELO → features → train → predict |
-| [`scripts/train_model.py`](scripts/train_model.py) | Same train flow as `main.py train` with explicit **`--model-path`** on the script |
+| [`src/cli/train.py`](src/cli/train.py) | Dedicated train entrypoint: **`python -m src.cli.train`** (same flags as `main.py train` + top-level `--model-path`) |
 | `src/data/` | Schemas, loaders, UFCStats scrapers, `refresh_data` |
 | `src/elo/`, `src/features/`, `src/matchup/`, `src/model/`, `src/confidence/` | Stages |
-| [`scripts/`](scripts/) | Auxiliaries (Phase‑3 tuning, ELO plots, training-feature histograms, etc.) |
+| [`scripts/`](scripts/) | One-off diagnostics and experiments (smoke scripts, pilots, merges — not core CLIs; model CLIs live under **`src/cli/`**) |
+| [`src/cli/plot_prediction_three_viz.py`](src/cli/plot_prediction_three_viz.py) | Optional **split-barrier** PNG for a fight; chart copy uses **integer %** (ADR-22) |
 | `data/` | Local CSVs and artifacts (gitignored where appropriate; see `.gitignore`) |
 
 ---
@@ -40,7 +41,7 @@ Design detail lives in [`docs/architecture.md`](docs/architecture.md). **CLI fla
 pip install -r requirements.txt
 
 # Train (writes model pickle)
-python scripts/train_model.py --data-dir ./data --model-path ./data/model.pkl
+python -m src.cli.train --data-dir ./data --model-path ./data/model.pkl
 
 # Inference by UFCStats fighter_id
 python main.py --model-path ./data/model.pkl predict <fighter_a_id> <fighter_b_id> lightweight --date 2024-06-01

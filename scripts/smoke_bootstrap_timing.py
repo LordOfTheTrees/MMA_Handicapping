@@ -9,7 +9,7 @@ Usage (from repo root)::
 
     python scripts/smoke_bootstrap_timing.py --data-dir ./data --elo-cache ./data/elo_cache.pkl
 
-Options match train_model where useful; does not write a model file.
+Options match ``python -m src.cli.train`` / ``main.py train`` where useful; does not write a model file.
 """
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ if str(ROOT) not in sys.path:
 
 from src.cli.common import resolve_date  # noqa: E402
 from src.config import Config, DEFAULT_HOLDOUT_START_DATE  # noqa: E402
-from src.confidence.intervals import fit_bootstrap_coefficients  # noqa: E402
+from src.confidence.intervals import (  # noqa: E402
+    _resolve_bootstrap_max_workers,
+    fit_bootstrap_coefficients,
+)
 from src.pipeline import MMAPredictor  # noqa: E402
 
 
@@ -36,7 +39,7 @@ def main() -> None:
         "--elo-cache",
         default=None,
         metavar="PATH",
-        help="Same as train_model: skip ELO rebuild when cache matches.",
+        help="Same as ``python -m src.cli.train``: skip ELO rebuild when cache matches.",
     )
     p.add_argument("--no-holdout", action="store_true")
     p.add_argument("--holdout-start", default=None, metavar="YYYY-MM-DD")
@@ -51,6 +54,13 @@ def main() -> None:
         type=int,
         default=200,
         help="Extrapolate bootstrap cost to this many resamples (default: 200).",
+    )
+    p.add_argument(
+        "--bootstrap-max-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Overrides ModelConfig.bootstrap_max_workers for the probe (same as train).",
     )
     args = p.parse_args()
 
@@ -102,14 +112,19 @@ def main() -> None:
         print("No training matrix; aborting.", file=sys.stderr)
         sys.exit(1)
 
-    n_rows = len(predictor._y_train)
     shp = predictor._X_train.shape
     print(f"Training matrix: {shp[0]:,} rows x {shp[1]} features")
 
     model_probe = copy.deepcopy(predictor.config.model)
     model_probe.n_bootstrap = args.n_probe
+    if args.bootstrap_max_workers is not None:
+        model_probe.bootstrap_max_workers = int(args.bootstrap_max_workers)
 
-    print(f"--- Timing {args.n_probe} bootstrap resample(s) (progress every 1) ---")
+    mw_eff = _resolve_bootstrap_max_workers(model_probe, args.n_probe, None)
+    print(
+        f"--- Timing {args.n_probe} bootstrap resample(s); "
+        f"effective_workers={mw_eff} (progress every 1) ---",
+    )
     t1 = time.perf_counter()
     W_stack, n_valid = fit_bootstrap_coefficients(
         predictor._X_train,
@@ -117,6 +132,7 @@ def main() -> None:
         predictor._train_weights,
         model_probe,
         progress_every=1,
+        max_workers=args.bootstrap_max_workers,
     )
     t_probe = time.perf_counter() - t1
     print(f"Probe bootstrap block: {t_probe:.1f}s  (valid fits: {n_valid} / {args.n_probe} attempts)")

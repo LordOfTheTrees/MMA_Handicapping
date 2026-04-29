@@ -1,6 +1,6 @@
 # Pipeline and CLI reference
 
-This document describes how to invoke the **CLI** (`main.py`, `scripts/train_model.py`), the **programmatic** [`MMAPredictor`](../src/pipeline.py) API, and related **arguments**. For architecture and design, see [`architecture.md`](architecture.md). Tunables live in [`src/config.py`](../src/config.py).
+This document describes how to invoke the **CLI** (`main.py`, **`python -m src.cli.train`**, and other **`python -m src.cli.*`** modules), the **programmatic** [`MMAPredictor`](../src/pipeline.py) API, and related **arguments**. For architecture and design, see [`architecture.md`](architecture.md). Tunables live in [`src/config.py`](../src/config.py).
 
 ---
 
@@ -22,21 +22,11 @@ Subcommands below can override inference paths where noted.
 
 ---
 
-### 3.1 `scripts/train_model.py`
-
-Same training flags as `main.py train`; adds **`--model-path`** on the training script’s own parser (equivalent to passing the global flag before `train` on `main.py`).
-
-```text
-python scripts/train_model.py --data-dir ./data --model-path ./out/model.pkl [TRAIN_OPTIONS...]
-```
-
----
-
-## 4. Subcommands (`main.py`)
+## 2. Subcommands (`main.py`)
 
 ### 2.1 `train`
 
-Loads CSVs from `--data-dir`, builds or loads ELO, fits multinomial regression (with optional holdout), saves when used via `scripts/train_model.py`.
+Loads CSVs from `--data-dir`, builds or loads ELO, fits multinomial regression (with optional holdout), and **saves** the pickle to **`--model-path`** (global flag on `main.py`). Same behavior as **`python -m src.cli.train`** (see [§3](#3-dedicated-train-module-python--m-srcclitrain)).
 
 | Argument | Meaning |
 |----------|---------|
@@ -48,7 +38,7 @@ Loads CSVs from `--data-dir`, builds or loads ELO, fits multinomial regression (
 | `--no-holdout` | Train regression on **all** Tier‑1 post-era rows (no date cut). Use for production refits; default path reserves a holdout for evaluation. |
 | `--holdout-start YYYY-MM-DD` | Exclude Tier‑1 fights with `fight_date >=` this date from **regression** fitting. ELO still uses full history. Overrides default `Config.holdout_start_date` (default `2023-01-01`). |
 
-**Stages (conceptual):** `load_data` → `build_elo` (or cache) → `train_regression` → [`save`](../src/pipeline.py) (only from `train_model.py` wrapper).
+**Stages (conceptual):** `load_data` → `build_elo` (or cache) → `train_regression` → [`save`](../src/pipeline.py).
 
 ---
 
@@ -106,29 +96,30 @@ Interactive prediction by **display name** from `fighter_profiles.csv` (embedded
 
 ---
 
-## 3. `scripts/train_model.py`
+## 3. Dedicated train module (`python -m src.cli.train`)
 
-Dedicated training script: **same logic** as `main.py train`, plus a **`--model-path`** argument on the parser itself (defaults to `model.pkl`).
+**Same logic** as `main.py train`; the module’s parser includes **`--model-path`** directly (defaults to `model.pkl`), equivalent to the global `--model-path` on `main.py`.
 
 ```text
-python scripts/train_model.py --data-dir ./data --model-path ./out/model.pkl [TRAIN_OPTIONS...]
+python -m src.cli.train --data-dir ./data --model-path ./out/model.pkl [TRAIN_OPTIONS...]
 ```
 
 `TRAIN_OPTIONS` are the same flags as [`register_train_arguments`](../src/cli/train.py): `--full-rebuild`, `--elo-cache`, `--holdout-start`, `--no-holdout`, etc.
 
 ---
 
-## 4. Other scripts (overview)
+## 4. Other CLIs (overview)
 
-These are auxiliary; see each file’s docstring:
+Implementations live under [`src/cli/`](../src/cli/). From the repo root, run with **`python -m src.cli.<module>`** so `src` resolves as a package (`PYTHONPATH`/cwd is typically the repo root).
 
-| Script | Role |
+| Module | Role |
 |--------|------|
-| [`scripts/run_phase3_tuning.py`](../scripts/run_phase3_tuning.py) | Phase‑3 walk‑forward / pristine evaluation CSV+JSON (`docs/hyperparameter-tuning.md`). |
-| [`scripts/plot_training_feature_histograms.py`](../scripts/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. |
+| [`src/cli/run_phase3_tuning.py`](../src/cli/run_phase3_tuning.py) | Phase‑3 walk‑forward / pristine evaluation CSV+JSON (`docs/hyperparameter-tuning.md`). |
+| [`src/cli/plot_prediction_three_viz.py`](../src/cli/plot_prediction_three_viz.py) | Split-barrier and related single-fight prediction figures; **percent labels are whole numbers** (see ADR-22). |
+| [`src/cli/plot_training_feature_histograms.py`](../src/cli/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. |
 | [`scripts/pilot_lbfgs_stopping.py`](../scripts/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
 | [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) | Phase‑2 smoke checks. |
-| [`scripts/chart_elo_trajectory.py`](../scripts/chart_elo_trajectory.py), [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) | Visualization helpers. |
+| [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization helpers. |
 
 ---
 
@@ -224,8 +215,8 @@ Swapping **A** and **B** flips the six-way distribution between win/loss sides (
 ## 8. Quick command cheat sheet
 
 ```text
-# Train (writes model.pkl only via train_model wrapper)
-python scripts/train_model.py --data-dir ./data --model-path ./data/model.pkl --elo-cache ./data/elo_cache.pkl
+# Train
+python -m src.cli.train --data-dir ./data --model-path ./data/model.pkl --elo-cache ./data/elo_cache.pkl
 
 # Holdout metrics
 python main.py --model-path ./data/model.pkl eval-holdout

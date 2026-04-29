@@ -229,7 +229,7 @@ per corner from **global** days since last fight to predict date. **No** discret
 
 **Context.** Iterative OAT in [`docs/todo.md`](todo.md) §3.4 is too slow to explore a **high-dimensional** joint `Config` space. We needed: (1) an **outer** year-by-year walk-forward over a **selection** block, (2) **inner/forward** log-loss to rank trials, (3) a **pristine** calendar strip (e.g. 2023–2025) that uses **no** in-year tuning — only a **configuration frozen** from the end of the selection block (e.g. **2022** search winner) so “true” OOS is not used to pick hyperparameters.
 
-**Decision.** Implement the harness in [`src/eval/tuning_harness.py`](../src/eval/tuning_harness.py), invoked by [`scripts/run_phase3_tuning.py`](../scripts/run_phase3_tuning.py) with optional **`--selection-search`** (`--n-trials` per outer year, default **50**; warm-start chain; inner window **`--inner-last-k`** or full inner). Write **`data/phase3_eval/phase3_report.json`**, metrics CSV, plots, and optional **`elo_walkforward_cache.pkl`**. **Serialization choice:** the report stores the **2022 (last selection year) winner** as **`frozen_winner_config`**, **`trial_rows`** (log-loss by trial id only, not full `Config` per trial), and **`selection_campaign`** per-year metadata — **not** a full record of every sampled hyperparameter vector across years.
+**Decision.** Implement the harness in [`src/eval/tuning_harness.py`](../src/eval/tuning_harness.py), invoked via **`python -m src.cli.run_phase3_tuning`** ([`src/cli/run_phase3_tuning.py`](../src/cli/run_phase3_tuning.py)) with optional **`--selection-search`** (`--n-trials` per outer year, default **50**; warm-start chain; inner window **`--inner-last-k`** or full inner). Write **`data/phase3_eval/phase3_report.json`**, metrics CSV, plots, and optional **`elo_walkforward_cache.pkl`**. **Serialization choice:** the report stores the **2022 (last selection year) winner** as **`frozen_winner_config`**, **`trial_rows`** (log-loss by trial id only, not full `Config` per trial), and **`selection_campaign`** per-year metadata — **not** a full record of every sampled hyperparameter vector across years.
 
 **Consequences.** A **full** 50-trial/yr run is a **long** wall-time commitment (ELO + repeated multinomial fits). For **A/B** without repeating that cost: run **baseline** walk-forward (no search), or **reduced** `--n-trials` / **narrower** selection years, and compare ranking or pristine deltas to the saved `phase3_metrics.csv` / JSON. **Production ship:** rehydrate **`frozen_winner_config`** (or the nested dict from JSON) into `Config` and run **`train`** with the **intended** deploy holdout / snapshot policy; do not treat `holdout_start_date` inside a frozen copy as binding without re-reading `docs/todo.md` §3.1. **Economic** evaluation (ROI vs book odds) is **out of scope** of this ADR; needs historical lines data.
 
@@ -258,6 +258,14 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 - When lines data exists, evaluate abstention on **ROI over all fights** (not accuracy on chosen fights): if the filter skips 40% of cards and the retained set shows positive P&L over a large sample, that is meaningful. If the retained set merely shows higher classification accuracy, it is not.
 - The `min_edge` threshold is itself a tuning parameter that should be selected against a holdout period of lines + outcomes, not the same period used to calibrate it.
 - **Weight-class and event-type stratification** matters: easy fights tend to cluster in prelims and mismatched debuts. Any abstention analysis should report coverage (fraction of fights staked) alongside ROI so the filter's selectivity is visible.
+
+---
+
+## ADR-22: Split-barrier figure uses whole-number percents only
+
+**Context.** PNGs emitted by **`python -m src.cli.plot_prediction_three_viz`** (stacked bar + total-win badge + marginal-CI strips) are for quick reading; fractional percents on the badge (e.g. “96.5%”) cluttered the focal **total win** line.
+
+**Decision.** Percent **numerals** in that figure are **integers 0–100** (nearest whole percent via `round` on fractional masses; probabilities clamped into `[0, 1]` where appropriate). Whiskers `[lo, hi]` use integer endpoints. This applies to **exported figure copy only**: terminal **`predict`** / **`main.py`** may still display more decimal places where useful.
 
 ---
 

@@ -282,7 +282,7 @@ A **first full** run of the script harness (random search per **selection** year
 **Next (operational, not a second mandatory 50-trial/yr run unless you need it):**
 
 - **Ship refit** — Rehydrate **`frozen_winner_config`** from `phase3_report.json` into `Config` and **train** for deployment; align **`holdout_start_date`** with your real **use case** (see §3.1).
-- **Fast A/B** — `run_phase3_tuning.py` with **smaller** `--n-trials` or **narrower** selection block **vs** the saved `phase3_metrics.csv`, or **baseline** walk-forward without `--selection-search`, to see whether rankings are **stable** under a cheaper budget.
+- **Fast A/B** — `python -m src.cli.run_phase3_tuning` with **smaller** `--n-trials` or **narrower** selection block **vs** the saved `phase3_metrics.csv`, or **baseline** walk-forward without `--selection-search`, to see whether rankings are **stable** under a cheaper budget.
 - **Case studies** — See [`hyperparameter-tuning.md`](hyperparameter-tuning.md) §9: pull **worst** per-fight log-loss bouts (by weight class) from the pristine report payload for **examples and narrative** debugging.
 - **P&L / CLV (later)** — With **time-stamped** historical **odds** (e.g. **closing** or **opening** at your decision time), you can backtest **edge** and stake rules; the model’s log-loss on outcomes alone does **not** imply profitability.
 
@@ -311,4 +311,4 @@ A **first full** run of the script harness (random search per **selection** year
 
 ## Side projects (low priority)
 
-- **ELO trajectory concavity / “never downtrend”** — After [`build_elo(..., record_trajectories=True)`](../src/pipeline.py) and [`ELOModel.get_trajectory`](../src/elo/elo.py), analyze per-division ELO sequences (see [`scripts/chart_elo_trajectory.py`](../scripts/chart_elo_trajectory.py)) using **concavity**, segment-wise slopes, or consecutive deltas to identify fighters whose trajectory **never shows a downtrend** under a clear rule (exploratory; define thresholds and minimum fights). Not a core model deliverable.
+- **ELO trajectory concavity / “never downtrend”** — After [`build_elo(..., record_trajectories=True)`](../src/pipeline.py) and [`ELOModel.get_trajectory`](../src/elo/elo.py), analyze per-division ELO sequences (see [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), `python -m src.cli.chart_elo_trajectory`) using **concavity**, segment-wise slopes, or consecutive deltas to identify fighters whose trajectory **never shows a downtrend** under a clear rule (exploratory; define thresholds and minimum fights). Not a core model deliverable.

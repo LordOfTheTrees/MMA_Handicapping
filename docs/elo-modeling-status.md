@@ -17,7 +17,7 @@ For **knob semantics** (what each parameter does when you change it), see [`elo-
 | **Kalman process noise** | **0.01** variance per **day** of global inactivity (was **0.0025**; original exploration included **0.05** / **0.10**). |
 | **Global layoff clock (ADR-15)** | `kalman_predict` before a bout uses days since the fighter’s **last fight in any division**; per-division `last_fight_date` on `ELOState` remains “last bout in this class.” |
 | **Draw / NC / DQ** | No ELO delta; clock and division bookkeeping still advance. |
-| **Validation tooling** | [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — histograms by division, summary stats, **`--top-n`** ranked tables; default chart **`data/elo_by_division.png`**. |
+| **Validation tooling** | [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) (`python -m src.cli.chart_elo_distributions`) — histograms by division, summary stats, **`--top-n`** ranked tables; default chart **`data/elo_by_division.png`**. |
 
 **Source of truth for numeric defaults:** [`src/config.py`](../src/config.py) (`ELOConfig`) and [`src/elo/elo.py`](../src/elo/elo.py) (`_K_SCALE`).
 

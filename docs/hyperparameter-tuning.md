@@ -2,7 +2,7 @@
 
 This document records **non-code** design choices for Phase 3: how we search for `Config` values, how we avoid overfitting the evidence, and how that relates to a **time-ordered, non-IID** sport where fighters are all connected by the ELO network.
 
-**Related code:** `src/config.py` (tunable fields), `src/cli/train.py` (train command shared by `main.py train` and `scripts/train_model.py`), `src/eval/tuning_harness.py` (walk-forward and scoring utilities).
+**Related code:** `src/config.py` (tunable fields), `src/cli/train.py` (train command shared by `main.py train` and `python -m src.cli.train`), `src/eval/tuning_harness.py` (walk-forward and scoring utilities).
 
 ---
 
@@ -98,7 +98,7 @@ The inner objective must **not** use the label distribution of year **Y** to pic
 **End-to-end run (baseline + pristine + figures + CSV/JSON):** from the repo root,
 
 ```text
-python scripts/run_phase3_tuning.py --data-dir ./data --out-dir ./data/phase3_eval
+python -m src.cli.run_phase3_tuning --data-dir ./data --out-dir ./data/phase3_eval
 ```
 
 Writes `phase3_metrics.csv`, `phase3_report.json`, `pristine_test_yoy.png` (2023–2025 bars), `log_loss_selection_and_pristine.png` (trajectory), and an ELO cache under `out-dir` to speed re-runs. Use `--no-walkforward` to only score the pristine years (faster). **Full protocol** (50 trials per selection year, warm-start chain, pristine uses frozen 2022 winner): add `--selection-search` (and optionally `--n-trials 50`, the default when this flag is set). For a **single-outer-year** debug run: `--search-outer-year 2020 --n-trials 50` (no `--selection-search`).
@@ -113,7 +113,7 @@ Fights in 2023–2025 with the **highest** per-fight log-loss (or largest surpri
 
 ## 10. Changelog of decision (short)
 
-- **Apr 2026 — reference run on disk** — A full `run_phase3_tuning.py --selection-search` (default 50 trials/outer year, 2007–2022 → pristine 2023–2025) has been **executed**; outputs: `data/phase3_eval/phase3_report.json` (incl. `frozen_winner_config`), `phase3_metrics.csv`, plots, optional ELO cache. **Planned check:** a **faster** config pass (e.g. baseline walk-forward, 10–20 trials, or 2018–2022 only) to confirm **stability of rankings** before repeating 50/yr. **Economic** backtest (odds) remains **future** work.
+- **Apr 2026 — reference run on disk** — A full `python -m src.cli.run_phase3_tuning --selection-search` (default 50 trials/outer year, 2007–2022 → pristine 2023–2025) has been **executed**; outputs: `data/phase3_eval/phase3_report.json` (incl. `frozen_winner_config`), `phase3_metrics.csv`, plots, optional ELO cache. **Planned check:** a **faster** config pass (e.g. baseline walk-forward, 10–20 trials, or 2018–2022 only) to confirm **stability of rankings** before repeating 50/yr. **Economic** backtest (odds) remains **future** work.
 - Random search, 50 trials, warm-start, fixed inner walk-forward, frozen 2022 `Config` for 2023–2025, full-data refit for ship.
 - Log-loss primary, F1 secondary, weight-class slices stored, not used for selection.
 

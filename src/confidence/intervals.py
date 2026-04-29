@@ -25,9 +25,13 @@ Two methods (architecture Section 8):
 The choice is automatic based on effective sample size after weighting and
 optional weight-class debut routing in ``MMAPredictor.predict``.
 """
+import copy
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 from scipy.stats import cauchy
-from typing import List, Optional, Tuple
 
 from ..config import ModelConfig
 from ..model.regression import MultinomialLogisticModel, N_CLASSES, CLASS_LABELS
@@ -54,6 +58,160 @@ def effective_sample_size(weights: np.ndarray) -> float:
 # Train-time bootstrap coefficient storage + fast prediction CI
 # ---------------------------------------------------------------------------
 
+_TR_POOL_X: Optional[np.ndarray] = None
+_TR_POOL_Y: Optional[np.ndarray] = None
+_TR_POOL_CFG: Optional[ModelConfig] = None
+
+
+def _bootstrap_env_threads_for_workers() -> None:
+    """Limit BLAS/OpenMP threading per subprocess to reduce oversubscription."""
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+    os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
+
+def _bootstrap_train_one(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    idx: np.ndarray,
+    config: ModelConfig,
+) -> Optional[np.ndarray]:
+    y_b = y_train[idx]
+    if len(np.unique(y_b)) < N_CLASSES:
+        return None
+    X_b = X_train[idx]
+    n_features = X_train.shape[1]
+    model_b = MultinomialLogisticModel(
+        n_features=n_features,
+        delta=config.huber_delta,
+        l2_lambda=config.l2_lambda,
+    )
+    m = config
+    try:
+        model_b.fit(
+            X_b, y_b,
+            max_iter=getattr(m, "lbfgs_max_iter", 10_000),
+            ftol=getattr(m, "lbfgs_ftol", 1e-12),
+            gtol=getattr(m, "lbfgs_gtol", 1e-7),
+        )
+        if model_b.W is not None:
+            return np.asarray(model_b.W, dtype=float).copy()
+    except Exception:
+        pass
+    return None
+
+
+def _init_train_process_pool(X: np.ndarray, y: np.ndarray, cfg: ModelConfig) -> None:
+    global _TR_POOL_X, _TR_POOL_Y, _TR_POOL_CFG
+    _bootstrap_env_threads_for_workers()
+    _TR_POOL_X = X
+    _TR_POOL_Y = y
+    _TR_POOL_CFG = cfg
+
+
+def _train_process_task(args: Tuple[int, np.ndarray]) -> Tuple[int, Optional[np.ndarray]]:
+    b, idx = args
+    assert _TR_POOL_X is not None and _TR_POOL_Y is not None and _TR_POOL_CFG is not None
+    W = _bootstrap_train_one(_TR_POOL_X, _TR_POOL_Y, idx, _TR_POOL_CFG)
+    return b, W
+
+
+_CI_POOL_X: Optional[np.ndarray] = None
+_CI_POOL_Y: Optional[np.ndarray] = None
+_CI_POOL_X_VEC: Optional[np.ndarray] = None
+_CI_POOL_CFG: Optional[ModelConfig] = None
+
+
+def _bootstrap_ci_predict_one(
+    x: np.ndarray,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    idx: np.ndarray,
+    config: ModelConfig,
+) -> Optional[np.ndarray]:
+    """Refit on resample, return ``predict_proba(x)`` or None if skipped/failed."""
+    y_b = y_train[idx]
+    if len(np.unique(y_b)) < N_CLASSES:
+        return None
+    X_b = X_train[idx]
+    n_features = x.shape[0]
+    model_b = MultinomialLogisticModel(
+        n_features=n_features,
+        delta=config.huber_delta,
+        l2_lambda=config.l2_lambda,
+    )
+    m = config
+    try:
+        model_b.fit(
+            X_b, y_b,
+            max_iter=getattr(m, "lbfgs_max_iter", 10_000),
+            ftol=getattr(m, "lbfgs_ftol", 1e-12),
+            gtol=getattr(m, "lbfgs_gtol", 1e-7),
+        )
+        return model_b.predict_proba(np.asarray(x, dtype=float))
+    except Exception:
+        return None
+
+
+def _init_ci_process_pool(X: np.ndarray, y: np.ndarray, x_vec: np.ndarray, cfg: ModelConfig) -> None:
+    global _CI_POOL_X, _CI_POOL_Y, _CI_POOL_X_VEC, _CI_POOL_CFG
+    _bootstrap_env_threads_for_workers()
+    _CI_POOL_X = X
+    _CI_POOL_Y = y
+    _CI_POOL_X_VEC = np.asarray(x_vec, dtype=float)
+    _CI_POOL_CFG = cfg
+
+
+def _ci_process_task(args: Tuple[int, np.ndarray]) -> Tuple[int, Optional[np.ndarray]]:
+    b, idx = args
+    assert (
+        _CI_POOL_X is not None
+        and _CI_POOL_Y is not None
+        and _CI_POOL_X_VEC is not None
+        and _CI_POOL_CFG is not None
+    )
+    p = _bootstrap_ci_predict_one(
+        _CI_POOL_X_VEC,
+        _CI_POOL_X,
+        _CI_POOL_Y,
+        idx,
+        _CI_POOL_CFG,
+    )
+    return b, p
+
+
+def _precompute_bootstrap_indices(
+    n: int,
+    n_bootstrap: int,
+    train_weights: Optional[np.ndarray],
+    rng: np.random.Generator,
+) -> List[np.ndarray]:
+    probs_w = None
+    if train_weights is not None:
+        s = train_weights.sum()
+        probs_w = train_weights / s if s > 0 else None
+    return [
+        rng.choice(n, size=n, replace=True, p=probs_w)
+        for _ in range(n_bootstrap)
+    ]
+
+
+def _resolve_bootstrap_max_workers(
+    config: ModelConfig,
+    n_bootstrap: int,
+    override: Optional[int],
+) -> int:
+    if override is not None:
+        return max(1, min(int(override), n_bootstrap))
+    raw = getattr(config, "bootstrap_max_workers", None)
+    if raw is not None:
+        return max(1, min(int(raw), n_bootstrap))
+    cpu = os.cpu_count() or 2
+    return max(1, min(n_bootstrap, max(1, cpu - 1)))
+
+
 def fit_bootstrap_coefficients(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -62,6 +220,7 @@ def fit_bootstrap_coefficients(
     rng: Optional[np.random.Generator] = None,
     *,
     progress_every: int = 0,
+    max_workers: Optional[int] = None,
 ) -> Tuple[np.ndarray, int]:
     """
     Weighted bootstrap: refit ``n_bootstrap`` multinomial models on resamples.
@@ -70,8 +229,15 @@ def fit_bootstrap_coefficients(
     ``(n_valid, N_CLASSES, n_features)`` — one coefficient matrix per successful
     resample. Used for fast CIs at prediction time without refitting.
 
+    Index draws use the same sequential RNG steps as legacy single-threaded runs.
+
     If fewer than 10 successful fits, returns an empty stack ``(0, K, F)`` and
     ``n_valid`` so callers can fall back to Cauchy or legacy bootstrap.
+
+    Parallelism uses ``multiprocessing`` worker processes when
+    ``_resolve_bootstrap_max_workers(...) > 1``. Set ``OMP_NUM_THREADS=1``
+    etc. via environment variables to reduce BLAS oversubscription (defaults
+    applied in worker initializers).
     """
     if rng is None:
         seed = getattr(config, "bootstrap_seed", 42)
@@ -79,42 +245,49 @@ def fit_bootstrap_coefficients(
 
     n = len(y_train)
     n_features = X_train.shape[1]
-    W_list: List[np.ndarray] = []
+    n_bootstrap = config.n_bootstrap
+    indices = _precompute_bootstrap_indices(n, n_bootstrap, train_weights, rng)
+    workers = _resolve_bootstrap_max_workers(config, n_bootstrap, max_workers)
 
-    probs_w = None
-    if train_weights is not None:
-        s = train_weights.sum()
-        probs_w = train_weights / s if s > 0 else None
-
-    for b in range(config.n_bootstrap):
-        idx = rng.choice(n, size=n, replace=True, p=probs_w)
-        X_b, y_b = X_train[idx], y_train[idx]
-
-        if len(np.unique(y_b)) < N_CLASSES:
-            continue
-
-        model_b = MultinomialLogisticModel(
-            n_features=n_features,
-            delta=config.huber_delta,
-            l2_lambda=config.l2_lambda,
-        )
-        try:
-            model_b.fit(
-                X_b, y_b,
-                max_iter=getattr(config, "lbfgs_max_iter", 10_000),
-                ftol=getattr(config, "lbfgs_ftol", 1e-12),
-                gtol=getattr(config, "lbfgs_gtol", 1e-7),
-            )
-            if model_b.W is not None:
-                W_list.append(np.asarray(model_b.W, dtype=float).copy())
-        except Exception:
-            pass
-
-        if progress_every > 0 and (b + 1) % progress_every == 0:
-            print(
-                f"  [train bootstrap] resample {b + 1:,} / {config.n_bootstrap:,}",
-                flush=True,
-            )
+    if workers <= 1:
+        W_list: List[np.ndarray] = []
+        for b, idx in enumerate(indices):
+            W = _bootstrap_train_one(X_train, y_train, idx, config)
+            if W is not None:
+                W_list.append(W)
+            if progress_every > 0 and (b + 1) % progress_every == 0:
+                print(
+                    f"  [train bootstrap] resample {b + 1:,} / {n_bootstrap:,}",
+                    flush=True,
+                )
+    else:
+        tasks = [(b, indices[b]) for b in range(n_bootstrap)]
+        done = 0
+        results_map: Dict[int, Optional[np.ndarray]] = {}
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_init_train_process_pool,
+            initargs=(
+                np.asarray(X_train, dtype=float),
+                np.asarray(y_train, dtype=np.int_),
+                copy.deepcopy(config),
+            ),
+        ) as exe:
+            futures = [exe.submit(_train_process_task, t) for t in tasks]
+            for fut in as_completed(futures):
+                b, W = fut.result()
+                results_map[b] = W
+                done += 1
+                if progress_every > 0 and done % progress_every == 0:
+                    print(
+                        f"  [train bootstrap] completed {done:,} / {n_bootstrap:,} resamples",
+                        flush=True,
+                    )
+        W_list = []
+        for b in range(n_bootstrap):
+            W = results_map.get(b)
+            if W is not None:
+                W_list.append(W)
 
     n_valid = len(W_list)
     if n_valid < 10:
@@ -217,6 +390,7 @@ def bootstrap_ci(
     progress_every: int = 0,
     elo_mc_gamma_a: Optional[float] = None,
     elo_mc_gamma_b: Optional[float] = None,
+    max_workers: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Percentile bootstrap confidence intervals for a single prediction vector x.
@@ -226,6 +400,9 @@ def bootstrap_ci(
       2. Refit regression coefficients on resample.
       3. Predict x with refitted model.
       4. Report alpha/2 and 1-alpha/2 percentiles across resamples.
+
+    When Cauchy ELO shocks are used (both gammas set), refits run sequentially
+    so RNG usage matches the legacy path. Otherwise processes may run in parallel.
 
     Returns:
         lower      : (N_CLASSES,) lower bounds
@@ -237,55 +414,99 @@ def bootstrap_ci(
 
     n = len(y_train)
     n_features = x.shape[0]
-    all_probs = np.full((config.n_bootstrap, N_CLASSES), np.nan)
+    n_bootstrap = config.n_bootstrap
+    all_probs = np.full((n_bootstrap, N_CLASSES), np.nan)
+
+    use_elo_mc = (
+        elo_mc_gamma_a is not None
+        and elo_mc_gamma_b is not None
+    )
 
     probs_w = None
     if train_weights is not None:
         s = train_weights.sum()
         probs_w = train_weights / s if s > 0 else None
 
-    for b in range(config.n_bootstrap):
-        idx = rng.choice(n, size=n, replace=True, p=probs_w)
-        X_b, y_b = X_train[idx], y_train[idx]
+    if use_elo_mc:
+        for b in range(n_bootstrap):
+            idx = rng.choice(n, size=n, replace=True, p=probs_w)
+            X_b, y_b = X_train[idx], y_train[idx]
 
-        # Skip degenerate resamples (fewer than N_CLASSES unique classes)
-        if len(np.unique(y_b)) < N_CLASSES:
-            continue
+            if len(np.unique(y_b)) < N_CLASSES:
+                continue
 
-        model_b = MultinomialLogisticModel(
-            n_features=n_features,
-            delta=config.huber_delta,
-            l2_lambda=config.l2_lambda,
-        )
-        try:
-            model_b.fit(
-                X_b, y_b,
-                max_iter=getattr(config, "lbfgs_max_iter", 10_000),
-                ftol=getattr(config, "lbfgs_ftol", 1e-12),
-                gtol=getattr(config, "lbfgs_gtol", 1e-7),
+            model_b = MultinomialLogisticModel(
+                n_features=n_features,
+                delta=config.huber_delta,
+                l2_lambda=config.l2_lambda,
             )
-            x_pred = x
-            if elo_mc_gamma_a is not None and elo_mc_gamma_b is not None:
+            try:
+                model_b.fit(
+                    X_b, y_b,
+                    max_iter=getattr(config, "lbfgs_max_iter", 10_000),
+                    ftol=getattr(config, "lbfgs_ftol", 1e-12),
+                    gtol=getattr(config, "lbfgs_gtol", 1e-7),
+                )
                 x_pred = x.copy()
                 x_pred[0] += (
                     float(rng.standard_cauchy() * elo_mc_gamma_a)
                     - float(rng.standard_cauchy() * elo_mc_gamma_b)
                 )
-            all_probs[b] = model_b.predict_proba(x_pred)
-        except Exception:
-            pass  # leave as NaN — filtered below
+                all_probs[b] = model_b.predict_proba(x_pred)
+            except Exception:
+                pass
 
-        if progress_every > 0 and (b + 1) % progress_every == 0:
-            print(
-                f"  [bootstrap CI] resample {b + 1:,} / {config.n_bootstrap:,}",
-                flush=True,
-            )
+            if progress_every > 0 and (b + 1) % progress_every == 0:
+                print(
+                    f"  [bootstrap CI] resample {b + 1:,} / {n_bootstrap:,}",
+                    flush=True,
+                )
+    else:
+        indices = _precompute_bootstrap_indices(n, n_bootstrap, train_weights, rng)
+        workers = _resolve_bootstrap_max_workers(config, n_bootstrap, max_workers)
+        if workers <= 1:
+            for b, idx in enumerate(indices):
+                pb = _bootstrap_ci_predict_one(x, X_train, y_train, idx, config)
+                if pb is not None:
+                    all_probs[b] = pb
+                if progress_every > 0 and (b + 1) % progress_every == 0:
+                    print(
+                        f"  [bootstrap CI] resample {b + 1:,} / {n_bootstrap:,}",
+                        flush=True,
+                    )
+        else:
+            tasks = [(b, indices[b]) for b in range(n_bootstrap)]
+            done = 0
+            results_map: Dict[int, Optional[np.ndarray]] = {}
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_ci_process_pool,
+                initargs=(
+                    np.asarray(X_train, dtype=float),
+                    np.asarray(y_train, dtype=np.int_),
+                    np.asarray(x, dtype=float),
+                    copy.deepcopy(config),
+                ),
+            ) as exe:
+                futures = [exe.submit(_ci_process_task, t) for t in tasks]
+                for fut in as_completed(futures):
+                    b, pb = fut.result()
+                    results_map[b] = pb
+                    done += 1
+                    if progress_every > 0 and done % progress_every == 0:
+                        print(
+                            f"  [bootstrap CI] completed {done:,} / {n_bootstrap:,} resamples",
+                            flush=True,
+                        )
+            for b in range(n_bootstrap):
+                pb = results_map.get(b)
+                if pb is not None:
+                    all_probs[b] = pb
 
     valid = all_probs[~np.any(np.isnan(all_probs), axis=1)]
     n_valid = len(valid)
 
     if n_valid < 10:
-        # Too few valid resamples — fall back to Cauchy instead
         return np.zeros(N_CLASSES), np.ones(N_CLASSES), n_valid
 
     alpha = config.ci_alpha
@@ -341,6 +562,7 @@ def compute_prediction_ci(
     elo_mc_gamma_b: Optional[float] = None,
     W_point: Optional[np.ndarray] = None,
     rng: Optional[np.random.Generator] = None,
+    bootstrap_max_workers: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray, str]:
     """
     Route to bootstrap or Cauchy based on effective sample size.
@@ -411,6 +633,7 @@ def compute_prediction_ci(
                 progress_every=bootstrap_progress_every,
                 elo_mc_gamma_a=elo_a,
                 elo_mc_gamma_b=elo_b,
+                max_workers=bootstrap_max_workers,
             )
             return lower, upper, ("bootstrap_elo_mc" if use_elo_mc else "bootstrap")
 
@@ -451,13 +674,13 @@ def format_prediction_table(
     if ci_method == "bootstrap":
         method_str = f"Bootstrap n={int(effective_n)}"
     elif ci_method == "bootstrap_elo_mc":
-        method_str = f"Bootstrap × ELO MC n={int(effective_n)}"
+        method_str = f"Bootstrap x ELO MC n={int(effective_n)}"
     elif ci_method == "elo_mc":
         method_str = "ELO MC (point W)"
     elif ci_method == "cauchy_wc_debut":
-        method_str = "Cauchy — weight-class debut"
+        method_str = "Cauchy -- weight-class debut"
     else:
-        method_str = "Cauchy — sparse reference class"
+        method_str = "Cauchy -- sparse reference class"
     era_note = f"{pct_post_era:.0%} from {master_start_year}"
 
     col_w = [25, 11, 16]
@@ -480,21 +703,21 @@ def format_prediction_table(
             f"Reference: {int(effective_n)} similar fights | {era_note} | Era: Modern"
         )
         if ci_method == "bootstrap_elo_mc":
-            lines.append("CIs include Cauchy ELO shocks (γ per corner; ADR-19).")
+            lines.append("CIs include Cauchy ELO shocks (gamma per corner; ADR-19).")
     elif ci_method == "elo_mc":
         lines.append(
-            f"Reference: training ESS ≈ {int(effective_n)} | {era_note} | "
+            f"Reference: training ESS ~ {int(effective_n)} | {era_note} | "
             "CIs from Cauchy ELO MC (point coefficients; ADR-19)"
         )
     elif ci_method == "cauchy_wc_debut":
         lines.append(
-            f"Reference: training ESS ≈ {int(effective_n)} | {era_note} | "
-            "⚠ Weight-class debut (Cauchy CIs; bootstrap skipped for this bout)"
+            f"Reference: training ESS ~ {int(effective_n)} | {era_note} | "
+            "(!) Weight-class debut (Cauchy CIs; bootstrap skipped for this bout)"
         )
     else:
         lines.append(
             f"Reference: {int(effective_n)} similar fights | Mixed eras | "
-            f"⚠ Interpret with caution"
+            "(!) Interpret with caution"
         )
 
     return "\n".join(lines)

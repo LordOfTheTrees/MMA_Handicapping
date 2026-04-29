@@ -118,4 +118,4 @@ Interact with **P** (layoff-inflated or not): after a long layoff, **P** is big,
 - [`elo-kalman-layoff-philosophy.md`](elo-kalman-layoff-philosophy.md) — why long layoffs **amplify** (not damp) the next update (ADR-16)  
 - [`architecture.md`](architecture.md) — ELO + Kalman design intent  
 - [`docs/architecture-decisions.md`](architecture-decisions.md) — product decisions log  
-- [`scripts/chart_elo_distributions.py`](../scripts/chart_elo_distributions.py) — visualize per-division ELO spread after changes (`--top-n` for ranked tables); default PNG is `data/elo_by_division.png` (existing file is deleted then rewritten each run; copy aside from `data/` first if you want to keep a snapshot)
+- [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) (`python -m src.cli.chart_elo_distributions`) — visualize per-division ELO spread after changes (`--top-n` for ranked tables); default PNG is `data/elo_by_division.png` (existing file is deleted then rewritten each run; copy aside from `data/` first if you want to keep a snapshot)
