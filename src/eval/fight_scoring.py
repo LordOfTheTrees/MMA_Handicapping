@@ -1,7 +1,16 @@
 """
-Shared Tier-1 fight scoring: log-loss, Brier, accuracy, macro F1, per–weight-class slices.
+Shared Tier-1 fight scoring: log-loss, Brier, accuracy, macro F1, binary W/L F1,
+binary finish F1, per–weight-class slices.
 
 Used by holdout eval and walk-forward / tuning harness. No CI cost — point probabilities only.
+
+Class index mapping (from regression.py):
+    0  Win by KO/TKO       ┐
+    1  Win by Submission   ├─ win  (wl_label 0)  ┐
+    2  Win by Decision     ┘                      ├─ decision (finish_label 1)
+    3  Lose by Decision    ┐                      ┘
+    4  Lose by KO/TKO      ├─ loss (wl_label 1)  ┐
+    5  Lose by Submission  ┘                      ├─ finish   (finish_label 0)
 """
 from __future__ import annotations
 
@@ -15,6 +24,27 @@ from ..model.regression import N_CLASSES, encode_outcome
 
 if TYPE_CHECKING:
     from ..pipeline import MMAPredictor
+
+
+# Win classes: 0 (Win KO/TKO), 1 (Win Sub), 2 (Win Decision)
+_WIN_CLASSES = frozenset({0, 1, 2})
+# Finish classes: 0 (Win KO/TKO), 1 (Win Sub), 4 (Lose KO/TKO), 5 (Lose Sub)
+_FINISH_CLASSES = frozenset({0, 1, 4, 5})
+
+
+def _to_wl(c: int) -> int:
+    """Collapse 6-class label to binary: 0=win, 1=loss."""
+    return 0 if c in _WIN_CLASSES else 1
+
+
+def _to_finish(c: int) -> int:
+    """Collapse 6-class label to binary: 0=finish, 1=decision."""
+    return 0 if c in _FINISH_CLASSES else 1
+
+
+def binary_f1(y_true: List[int], y_pred: List[int]) -> float:
+    """Macro F1 for a pre-collapsed binary label sequence (labels in {0, 1})."""
+    return multiclass_macro_f1(y_true, y_pred, n_classes=2)
 
 
 def multiclass_macro_f1(y_true: List[int], y_pred: List[int], n_classes: int = N_CLASSES) -> float:
@@ -53,6 +83,8 @@ class WeightClassScoreSlice:
     mean_brier: float
     accuracy: float
     macro_f1: float
+    wl_f1: float = float("nan")
+    finish_f1: float = float("nan")
 
 
 @dataclass
@@ -62,6 +94,8 @@ class Tier1SliceScore:
     mean_brier: float
     accuracy: float
     macro_f1: float
+    wl_f1: float = float("nan")
+    finish_f1: float = float("nan")
     by_weight_class: Dict[str, WeightClassScoreSlice] = field(default_factory=dict)
 
 
@@ -111,10 +145,16 @@ def score_tier1_fight_slice(
 
     n = len(log_losses)
     if n == 0:
-        return Tier1SliceScore(0, float("nan"), float("nan"), float("nan"), float("nan"), {})
+        return Tier1SliceScore(0, float("nan"), float("nan"), float("nan"), float("nan"))
 
     acc = float(sum(1 for t, p in zip(y_true, y_pred) if t == p) / n)
     f1 = multiclass_macro_f1(y_true, y_pred)
+
+    wl_true = [_to_wl(c) for c in y_true]
+    wl_pred = [_to_wl(c) for c in y_pred]
+    fin_true = [_to_finish(c) for c in y_true]
+    fin_pred = [_to_finish(c) for c in y_pred]
+
     w_slices: Dict[str, WeightClassScoreSlice] = {}
     for wck, b in by_wc.items():
         m = len(b["ll"])
@@ -122,12 +162,18 @@ def score_tier1_fight_slice(
             continue
         w_acc = float(sum(1 for t, p in zip(b["yt"], b["yp"]) if t == p) / m)
         w_f1 = multiclass_macro_f1(b["yt"], b["yp"])
+        bwl_t = [_to_wl(c) for c in b["yt"]]
+        bwl_p = [_to_wl(c) for c in b["yp"]]
+        bfin_t = [_to_finish(c) for c in b["yt"]]
+        bfin_p = [_to_finish(c) for c in b["yp"]]
         w_slices[wck] = WeightClassScoreSlice(
             n=m,
             mean_log_loss=float(np.mean(b["ll"])),
             mean_brier=float(np.mean(b["br"])),
             accuracy=w_acc,
             macro_f1=w_f1,
+            wl_f1=binary_f1(bwl_t, bwl_p),
+            finish_f1=binary_f1(bfin_t, bfin_p),
         )
 
     return Tier1SliceScore(
@@ -136,6 +182,8 @@ def score_tier1_fight_slice(
         mean_brier=float(np.mean(briers)),
         accuracy=acc,
         macro_f1=f1,
+        wl_f1=binary_f1(wl_true, wl_pred),
+        finish_f1=binary_f1(fin_true, fin_pred),
         by_weight_class=w_slices,
     )
 

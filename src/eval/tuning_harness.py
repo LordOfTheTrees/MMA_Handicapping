@@ -443,6 +443,8 @@ def run_selection_campaign_with_search(
                     "forward_n_fights": fwd.n,
                     "forward_brier": fwd.mean_brier,
                     "forward_macro_f1": fwd.macro_f1,
+                    "forward_wl_f1": fwd.wl_f1,
+                    "forward_finish_f1": fwd.finish_f1,
                     "wall_time_sec": wall,
                     "trial_rows": [
                         {"trial": a, "inner_mean_ll": b, "forward_mean_ll": c} for a, b, c in tri
