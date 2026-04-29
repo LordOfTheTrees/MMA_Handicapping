@@ -235,6 +235,32 @@ per corner from **global** days since last fight to predict date. **No** discret
 
 ---
 
+## ADR-21: Abstention framing — EV-based, not confidence-based
+
+**Context.** Once we have historical betting line data, the question arises: should the model abstain from certain predictions — and if so, what triggers abstention? Two intuitive but wrong framings present themselves:
+
+1. **Argmax-probability threshold**: abstain when no single class exceeds some confidence cutoff (e.g. max p < 0.40). This is classification-thinking applied to a probability output.
+2. **CI overlap**: abstain when win/loss CIs overlap too much to call a direction. In a 6-class model with bootstrap and Cauchy ELO MC, CIs on *any* single outcome class will always overlap with adjacent classes at realistic sample sizes — this criterion would abstain on nearly every fight.
+
+Both framings optimize for *easy fights*. If we tune an abstention threshold against classification accuracy on the subset of fights the model *chooses* to predict, we learn to cherry-pick mismatches where the model is already extremely lopsided. Reported metrics on that subset will look better than the full-card reality, and the filter becomes a metric-inflation mechanism rather than a genuine decision tool.
+
+**Decision.** Abstention is not a model layer — it is a **downstream financial decision** that the model itself should not own. The model always outputs a full 6-class probability distribution with confidence intervals. Abstention lives in a separate **stake filter** that asks:
+
+> *Given the model's outcome distribution P and the available market line, is there a bet with positive expected value after accounting for margin?*
+
+Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 + min_edge`, where `min_edge` is a tunable profitability threshold (e.g. 0.03–0.05 above breakeven). This makes abstention a function of **P × line**, not of P alone. A fight the model finds uncertain may still be bettable if the market is even more uncertain (long odds). A fight the model finds one-sided may not be bettable if the market has already priced it correctly.
+
+**Consequences.**
+
+- Abstention cannot be evaluated or tuned until a reproducible source of historical betting lines (opening, closing, or pre-bell) is available at the fight level. See `TODO.md` §P&L and ADR-20 "Deferred" for scope notes.
+- The stake filter is **not** trained jointly with the regression model. It is applied post-hoc to model outputs. Training them jointly would reintroduce the cherry-picking bias.
+- **Do not add a confidence threshold to `predict` or `score_tier1_fight_slice`.** Those are model-evaluation surfaces that must score every fight to be honest. A fight the model is uncertain about is still a real fight; excluding it from metrics is dishonest.
+- When lines data exists, evaluate abstention on **ROI over all fights** (not accuracy on chosen fights): if the filter skips 40% of cards and the retained set shows positive P&L over a large sample, that is meaningful. If the retained set merely shows higher classification accuracy, it is not.
+- The `min_edge` threshold is itself a tuning parameter that should be selected against a holdout period of lines + outcomes, not the same period used to calibrate it.
+- **Weight-class and event-type stratification** matters: easy fights tend to cluster in prelims and mismatched debuts. Any abstention analysis should report coverage (fraction of fights staked) alongside ROI so the filter's selectivity is visible.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
