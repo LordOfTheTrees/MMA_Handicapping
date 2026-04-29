@@ -11,6 +11,7 @@ train   Build ELO, construct features, fit regression. Saves model to disk.
         --skip-refresh-if-present. --elo-cache loads/saves a PIT ELO cache.
 predict Produce a calibrated 6-class probability distribution for a matchup.
 explain Show the exact additive decomposition of a prediction's log-odds.
+predict-human  Interactive predict: look up fighters by name (fuzzy), pick past fight if ambiguous.
 
 Usage
 -----
@@ -22,6 +23,7 @@ Usage
     python main.py eval-holdout
     python main.py predict <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
     python main.py explain <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
+    python main.py predict-human [--model-path PATH] [NAME_A] [NAME_B]
 
 Weight class aliases (case-insensitive)
 ---------------------------------------
@@ -43,6 +45,7 @@ import sys
 from pathlib import Path
 
 from src.cli.common import resolve_date, resolve_weight_class
+from src.cli.predict_human import cmd_predict_human, register_predict_human_arguments
 from src.cli.train import cmd_train, register_train_arguments
 from src.pipeline import MMAPredictor
 
@@ -62,18 +65,20 @@ def cmd_eval_holdout(args: argparse.Namespace) -> None:
             "python main.py train --data-dir ./data --holdout-start YYYY-MM-DD",
         )
         sys.exit(1)
-    from src.eval.holdout_metrics import run_holdout_eval
+    from src.eval.holdout_metrics import holdout_tier1_slice, print_holdout_baseline_report
 
-    n, ll, brier, acc = run_holdout_eval(predictor)
+    s = holdout_tier1_slice(predictor)
     hsd = predictor.config.holdout_start_date
+    assert hsd is not None  # guarded above
     print(f"\nHoldout evaluation  (fight_date >= {hsd})")
-    print(f"  Tier-1 decisive fights (A perspective): {n:,}")
-    if n == 0:
+    print(f"  Tier-1 decisive fights (A perspective): {s.n:,}")
+    if s.n == 0:
         print("  No rows to score. Check holdout_start_date vs data.")
         return
-    print(f"  Mean log-loss: {ll:.4f}")
-    print(f"  Mean Brier:    {brier:.4f}")
-    print(f"  Accuracy:      {acc:.2%}\n")
+    print(f"  Mean log-loss: {s.mean_log_loss:.4f}")
+    print(f"  Mean Brier:    {s.mean_brier:.4f}")
+    print(f"  Accuracy:      {s.accuracy:.2%}\n")
+    print_holdout_baseline_report(s, hsd)
 
 
 def cmd_predict(args: argparse.Namespace) -> None:
@@ -167,6 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fight date as YYYY-MM-DD (default: today)",
     )
 
+    p_ph = sub.add_parser(
+        "predict-human",
+        help="Predict by fighter names (fuzzy lookup, disambiguate past fights).",
+    )
+    register_predict_human_arguments(p_ph)
+
     return parser
 
 
@@ -180,9 +191,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dispatch = {
-        "train":        cmd_train,
-        "eval-holdout": cmd_eval_holdout,
-        "predict":      cmd_predict,
-        "explain":      cmd_explain,
+        "train":           cmd_train,
+        "eval-holdout":    cmd_eval_holdout,
+        "predict":         cmd_predict,
+        "explain":         cmd_explain,
+        "predict-human":   cmd_predict_human,
     }
     dispatch[args.command](args)

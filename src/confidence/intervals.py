@@ -99,7 +99,12 @@ def fit_bootstrap_coefficients(
             l2_lambda=config.l2_lambda,
         )
         try:
-            model_b.fit(X_b, y_b, max_iter=500)
+            model_b.fit(
+                X_b, y_b,
+                max_iter=getattr(config, "lbfgs_max_iter", 10_000),
+                ftol=getattr(config, "lbfgs_ftol", 1e-12),
+                gtol=getattr(config, "lbfgs_gtol", 1e-7),
+            )
             if model_b.W is not None:
                 W_list.append(np.asarray(model_b.W, dtype=float).copy())
         except Exception:
@@ -253,7 +258,12 @@ def bootstrap_ci(
             l2_lambda=config.l2_lambda,
         )
         try:
-            model_b.fit(X_b, y_b, max_iter=500)
+            model_b.fit(
+                X_b, y_b,
+                max_iter=getattr(config, "lbfgs_max_iter", 10_000),
+                ftol=getattr(config, "lbfgs_ftol", 1e-12),
+                gtol=getattr(config, "lbfgs_gtol", 1e-7),
+            )
             x_pred = x
             if elo_mc_gamma_a is not None and elo_mc_gamma_b is not None:
                 x_pred = x.copy()

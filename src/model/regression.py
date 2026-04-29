@@ -18,9 +18,118 @@ Class labels:
 """
 import numpy as np
 from scipy.optimize import minimize
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..data.schema import FightRecord, ResultMethod
+
+
+def coefficient_column_norms(W: np.ndarray) -> np.ndarray:
+    """
+    Per-feature Euclidean norm across class rows :math:`\\sqrt{\\sum_k W_{kj}^2}`.
+
+    Larger norms assign more scale to logits when features vary; summed over columns
+    the relative proportions approximate “share of coefficient magnitude”.
+    """
+    return np.sqrt(np.sum(W ** 2, axis=0))
+
+
+def relative_feature_importance(
+    W: np.ndarray,
+    feature_names: Sequence[str],
+    *,
+    scales: Optional[np.ndarray] = None,
+    groups: Optional[Mapping[str, Sequence[str]]] = None,
+) -> Tuple[np.ndarray, Dict[str, float]]:
+    """
+    Returns (fraction_per_feature aligned with *feature_names*, group_mass dict name -> fraction).
+
+    Each feature fraction is ``mass[j] / sum(mass)`` where mass is L2 column norm of W,
+    or ``col_norm[j] * scales[j]`` when *scales* is provided (e.g. training-column std
+    for apples-to-apples importance).
+    """
+    col = coefficient_column_norms(W)
+    if scales is not None:
+        sc = np.asarray(scales, dtype=float)
+        if sc.shape != col.shape:
+            raise ValueError("scales must match W column count")
+        col = col * sc
+    s = float(np.sum(col))
+    if s <= 0.0:
+        n = len(feature_names)
+        return np.ones(n, dtype=float) / max(n, 1), {}
+    rel = col / s
+    out_groups: Dict[str, float] = {}
+    idx = {nm: i for i, nm in enumerate(feature_names)}
+    if groups:
+        for gname, names in groups.items():
+            out_groups[gname] = float(
+                np.sum(rel[idx[nm]] for nm in names if nm in idx)
+            )
+    return rel, out_groups
+
+
+def format_coefficient_importance_report(
+    W: np.ndarray,
+    feature_names: List[str],
+    groups: Mapping[str, Sequence[str]],
+    X_train: Optional[np.ndarray] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Build a printable block and structured dict saved with the pickle for auditing.
+
+    With *X_train*, adds a second block: same L2 column norms multiplied by the
+    per-column training std (scale-adjusted "mass" share).
+    """
+    rel, gmass = relative_feature_importance(W, feature_names, groups=groups)
+    ranking = sorted(
+        [(feature_names[j], float(rel[j])) for j in range(len(feature_names))],
+        key=lambda t: t[1],
+        reverse=True,
+    )
+    lines = [
+        "  [train] Regression feature importance (L2 column norms of W; fractions sum to 1):",
+        "    -- per feature (fraction of learned coefficient magnitude) --",
+    ]
+    for fname, frac in ranking:
+        lines.append(f"        {fname:<38s} {frac:.4f}")
+    lines.append("    -- by feature family (sums of fractions above) --")
+    for gname in sorted(gmass.keys()):
+        lines.append(f"        {gname:<38s} {gmass[gname]:.4f}")
+
+    structured: Dict[str, Any] = {
+        "per_feature_fraction": {fname: float(rel[j]) for j, fname in enumerate(feature_names)},
+        "group_fraction": dict(gmass),
+        "ordering": [t[0] for t in ranking],
+    }
+
+    if X_train is not None and len(X_train) > 1:
+        std = np.std(np.asarray(X_train, dtype=float), axis=0, ddof=0)
+        structured["feature_std_training"] = {fname: float(std[j]) for j, fname in enumerate(feature_names)}
+        rel_std, gmass_std = relative_feature_importance(
+            W, feature_names, scales=std, groups=groups,
+        )
+        ranking_std = sorted(
+            [(feature_names[j], float(rel_std[j])) for j in range(len(feature_names))],
+            key=lambda t: t[1],
+            reverse=True,
+        )
+        lines.append(
+            "  [train] Same, scaled by column std(X_train) (apples-to-apples magnitude; fractions sum to 1):",
+        )
+        lines.append("    -- per feature --")
+        for fname, frac in ranking_std:
+            lines.append(f"        {fname:<38s} {frac:.4f}")
+        lines.append("    -- by feature family --")
+        for gname in sorted(gmass_std.keys()):
+            lines.append(f"        {gname:<38s} {gmass_std[gname]:.4f}")
+        structured["per_feature_fraction_std_scaled"] = {
+            fname: float(rel_std[j]) for j, fname in enumerate(feature_names)
+        }
+        structured["group_fraction_std_scaled"] = dict(gmass_std)
+        structured["ordering_std_scaled"] = [t[0] for t in ranking_std]
+
+    text = "\n".join(lines) + "\n"
+    return text, structured
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +292,7 @@ class MultinomialLogisticModel:
         self,
         X: np.ndarray,
         y: np.ndarray,
-        max_iter: int = 3000,
+        max_iter: int = 10000,
         *,
         verbose: bool = False,
         ftol: float = 1e-12,

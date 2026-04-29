@@ -471,6 +471,8 @@ def parse_fight_page(
     r0 = by_id[page_order_ids[0]]
     r1 = by_id[page_order_ids[1]]
 
+    # Corners are stored in **lexicographic order on fighter_id** (not UFCStats page order,
+    # not winner/red corner). Stats columns a_* / b_* align with sorted(id_a, id_b).
     id_a, id_b = sorted(page_order_ids)
     if id_a == page_order_ids[0]:
         sa, sb = r0, r1

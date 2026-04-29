@@ -1,10 +1,11 @@
 """
 Tunable model parameters.
 
-All values here are empirically adjustable against holdout prediction
-performance. Defaults are principled starting points, not final specs.
+Production defaults mirror the **frozen 2022 winner** from Phase‑3 tuning
+(`data/phase3_eval/phase3_report.json`, field ``frozen_winner_config``).
+
 The regression calendar floor is ``Config.master_start_year`` (single source of truth).
-See docs/architecture.md Section 10 and docs/todo.md §3.3 for the full tuning inventory.
+See docs/architecture.md Section 10 and docs/todo.md §3.3 for the tuning inventory.
 """
 import math
 from dataclasses import dataclass, field
@@ -22,8 +23,8 @@ DEFAULT_HOLDOUT_START_DATE = date(2023, 1, 1)
 @dataclass
 class ELOConfig:
     # ELO tuning: k_base and logistic_divisor (see docs/elo-tuning-knobs.md).
-    k_base: float = 100.0
-    logistic_divisor: float = 300.0
+    k_base: float = 106.50500479263579
+    logistic_divisor: float = 329.05773573398494
     initial_elo: float = 1500.0
 
     # Cross-promotion ELO discount by tier (fraction of delta above baseline retained).
@@ -36,20 +37,20 @@ class ELOConfig:
     })
 
     # Kalman process noise: ELO variance added per day of inactivity
-    kalman_process_noise: float = 0.01
+    kalman_process_noise: float = 0.006836132715957005
 
     # Kalman measurement noise: variance scale for each fight observation
-    kalman_measurement_noise: float = 1.0
+    kalman_measurement_noise: float = 1.5123906512158394
 
 
 @dataclass
 class FeatureConfig:
     # Exponential recency decay rate (lambda), applied per fight-equivalent unit.
     # Higher = more weight on recent fights.
-    recency_decay_rate: float = 0.10
+    recency_decay_rate: float = 0.16444613466166597
 
     # Minimum ELO-weighted effective fights before style axes leave cold-start blending.
-    min_fights_style_estimate: int = 3
+    min_fights_style_estimate: int = 2
 
 
 @dataclass
@@ -85,10 +86,17 @@ class ModelConfig:
     elo_mc_gamma_max: float = 120.0
 
     # Huber delta for the robust loss function (transition from quadratic to linear).
-    huber_delta: float = 1.35
+    huber_delta: float = 1.2722524258387735
 
     # L2 regularization weight on regression coefficients.
-    l2_lambda: float = 1e-4
+    l2_lambda: float = 0.00012812385533133005
+
+    # --- L-BFGS-B (point fit + bootstrap refits align on these defaults) ---
+    # Raised above historical 3000 so tuned hyperparameters can converge without
+    # hitting the iteration limit.
+    lbfgs_max_iter: int = 10_000
+    lbfgs_ftol: float = 1e-12
+    lbfgs_gtol: float = 1e-7
 
     def elo_mc_gamma_for_days_idle(self, days_idle: int) -> float:
         """

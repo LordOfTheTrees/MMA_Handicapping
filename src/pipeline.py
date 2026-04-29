@@ -21,7 +21,7 @@ import dataclasses
 import pickle
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -37,10 +37,17 @@ from .data.schema import (
 from .elo.elo import ELOModel
 from .features.construction import apply_cold_start_prior, compute_style_axes
 from .matchup.interactions import (
-    build_matchup_features, features_to_array, FEATURE_NAMES,
+    build_matchup_features,
+    features_to_array,
+    FEATURE_GROUPS,
+    FEATURE_NAMES,
 )
 from .model.regression import (
-    CLASS_LABELS, MultinomialLogisticModel, N_CLASSES, encode_outcome,
+    CLASS_LABELS,
+    MultinomialLogisticModel,
+    N_CLASSES,
+    encode_outcome,
+    format_coefficient_importance_report,
 )
 from .confidence.intervals import (
     compute_prediction_ci, effective_sample_size, fit_bootstrap_coefficients,
@@ -72,6 +79,20 @@ def _migrate_model_config_elo_mc_fields(model: Optional[object]) -> None:
             object.__setattr__(model, key, val)
 
 
+def _migrate_model_config_lbfgs_fields(model: Optional[object]) -> None:
+    """Pickle migration: ``ModelConfig`` gains L-BFGS-B knobs."""
+    if model is None:
+        return
+    defaults = {
+        "lbfgs_max_iter": 10_000,
+        "lbfgs_ftol": 1e-12,
+        "lbfgs_gtol": 1e-7,
+    }
+    for key, val in defaults.items():
+        if not hasattr(model, key):
+            object.__setattr__(model, key, val)
+
+
 # ---------------------------------------------------------------------------
 # Main predictor class
 # ---------------------------------------------------------------------------
@@ -95,8 +116,8 @@ class MMAPredictor:
         self._X_train: Optional[np.ndarray] = None
         self._y_train: Optional[np.ndarray] = None
         self._train_weights: Optional[np.ndarray] = None
-        #: (n_bootstrap_valid, N_CLASSES, n_features) from train-time refits; fast CIs at predict.
-        self._bootstrap_W: Optional[np.ndarray] = None
+        #: Structured summary of coefficient norms (from last ``train_regression`` with fit).
+        self.training_regression_audit: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # Stage 1: Data loading
@@ -413,7 +434,25 @@ class MMAPredictor:
             delta=self.config.model.huber_delta,
             l2_lambda=self.config.model.l2_lambda,
         )
-        self.regression.fit(self._X_train, self._y_train, verbose=True)
+        m = self.config.model
+        self.regression.fit(
+            self._X_train,
+            self._y_train,
+            verbose=True,
+            max_iter=m.lbfgs_max_iter,
+            ftol=m.lbfgs_ftol,
+            gtol=m.lbfgs_gtol,
+        )
+
+        if self.regression.W is not None:
+            rep_text, audit = format_coefficient_importance_report(
+                self.regression.W,
+                list(FEATURE_NAMES),
+                FEATURE_GROUPS,
+                self._X_train,
+            )
+            print(rep_text, flush=True)
+            self.training_regression_audit = audit
 
         eff_n = effective_sample_size(self._train_weights)
         cauchy_th = self.config.model.cauchy_fallback_threshold
@@ -686,6 +725,8 @@ class MMAPredictor:
         self.__dict__.update(state)
         if "_bootstrap_W" not in self.__dict__:
             self._bootstrap_W = None
+        if "training_regression_audit" not in self.__dict__:
+            self.training_regression_audit = None
         cfg = self.__dict__.get("config")
         if cfg is not None:
             if not hasattr(cfg, "master_start_year"):
@@ -701,6 +742,7 @@ class MMAPredictor:
 
                 object.__setattr__(cfg, "holdout_start_date", DEFAULT_HOLDOUT_START_DATE)
             _migrate_model_config_elo_mc_fields(getattr(cfg, "model", None))
+            _migrate_model_config_lbfgs_fields(getattr(cfg, "model", None))
 
     @classmethod
     def load(cls, path: Path) -> "MMAPredictor":

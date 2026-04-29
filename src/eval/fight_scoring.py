@@ -15,7 +15,7 @@ Class index mapping (from regression.py):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -85,6 +85,8 @@ class WeightClassScoreSlice:
     macro_f1: float
     wl_f1: float = float("nan")
     finish_f1: float = float("nan")
+    mean_wl_log_loss: float = float("nan")
+    wl_accuracy: float = float("nan")
 
 
 @dataclass
@@ -96,6 +98,8 @@ class Tier1SliceScore:
     macro_f1: float
     wl_f1: float = float("nan")
     finish_f1: float = float("nan")
+    mean_wl_log_loss: float = float("nan")
+    wl_accuracy: float = float("nan")
     by_weight_class: Dict[str, WeightClassScoreSlice] = field(default_factory=dict)
 
 
@@ -115,6 +119,7 @@ def score_tier1_fight_slice(
 
     log_losses: List[float] = []
     briers: List[float] = []
+    wl_log_losses: List[float] = []
     y_true: List[int] = []
     y_pred: List[int] = []
     by_wc: Dict[str, Dict[str, List[Any]]] = {}
@@ -131,15 +136,20 @@ def score_tier1_fight_slice(
         oh = np.zeros(N_CLASSES, dtype=float)
         oh[y] = 1.0
         briers.append(float(np.sum((oh - p) ** 2)))
+        p_win = float(p[0] + p[1] + p[2])
+        p_win = float(min(max(p_win, eps), 1.0 - eps))
+        is_win = y in _WIN_CLASSES
+        wl_log_losses.append(float(-np.log(p_win) if is_win else -np.log(1.0 - p_win)))
         pred = int(np.argmax(p))
         y_true.append(y)
         y_pred.append(pred)
 
         wck = wc.value
         if wck not in by_wc:
-            by_wc[wck] = {"ll": [], "br": [], "yt": [], "yp": []}
+            by_wc[wck] = {"ll": [], "br": [], "wll": [], "yt": [], "yp": []}
         by_wc[wck]["ll"].append(log_losses[-1])
         by_wc[wck]["br"].append(briers[-1])
+        by_wc[wck]["wll"].append(wl_log_losses[-1])
         by_wc[wck]["yt"].append(y)
         by_wc[wck]["yp"].append(pred)
 
@@ -154,7 +164,7 @@ def score_tier1_fight_slice(
     wl_pred = [_to_wl(c) for c in y_pred]
     fin_true = [_to_finish(c) for c in y_true]
     fin_pred = [_to_finish(c) for c in y_pred]
-
+    wl_acc = float(sum(1 for t, p in zip(wl_true, wl_pred) if t == p) / n)
     w_slices: Dict[str, WeightClassScoreSlice] = {}
     for wck, b in by_wc.items():
         m = len(b["ll"])
@@ -166,6 +176,7 @@ def score_tier1_fight_slice(
         bwl_p = [_to_wl(c) for c in b["yp"]]
         bfin_t = [_to_finish(c) for c in b["yt"]]
         bfin_p = [_to_finish(c) for c in b["yp"]]
+        b_wl_acc = float(sum(1 for t, p in zip(bwl_t, bwl_p) if t == p) / m)
         w_slices[wck] = WeightClassScoreSlice(
             n=m,
             mean_log_loss=float(np.mean(b["ll"])),
@@ -174,6 +185,8 @@ def score_tier1_fight_slice(
             macro_f1=w_f1,
             wl_f1=binary_f1(bwl_t, bwl_p),
             finish_f1=binary_f1(bfin_t, bfin_p),
+            mean_wl_log_loss=float(np.mean(b["wll"])),
+            wl_accuracy=b_wl_acc,
         )
 
     return Tier1SliceScore(
@@ -184,6 +197,8 @@ def score_tier1_fight_slice(
         macro_f1=f1,
         wl_f1=binary_f1(wl_true, wl_pred),
         finish_f1=binary_f1(fin_true, fin_pred),
+        mean_wl_log_loss=float(np.mean(wl_log_losses)),
+        wl_accuracy=wl_acc,
         by_weight_class=w_slices,
     )
 

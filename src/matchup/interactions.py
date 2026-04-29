@@ -14,7 +14,7 @@ reverses the interaction terms, and flips predicted win↔lose probabilities.
 """
 import numpy as np
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..data.schema import (
     ELOState, FighterProfile, MatchupFeatures, Stance, StyleAxes,
@@ -70,6 +70,19 @@ FEATURE_NAMES: List[str] = [
 ]
 
 N_FEATURES = len(FEATURE_NAMES)
+
+#: Human-readable bundles for interpreting coefficient norms (training-time importance).
+FEATURE_GROUPS: Dict[str, Tuple[str, ...]] = {
+    "elo_differential_only": ("elo_differential",),
+    "style_axis_diffs": (
+        "striker_score_diff",
+        "grappler_score_diff",
+        "finish_threat_diff",
+        "finish_vulnerability_diff",
+    ),
+    "matchup_interactions": ("striking_matchup", "grappling_matchup", "finish_matchup"),
+    "physical_attributes": ("reach_diff_cm", "height_diff_cm", "stance_mismatch", "age_diff_days"),
+}
 
 
 def build_matchup_features(

@@ -65,6 +65,8 @@ def _slice_to_dict(name: str, y: int, s: Tier1SliceScore) -> Dict[str, Any]:
             "macro_f1": v.macro_f1,
             "wl_f1": v.wl_f1,
             "finish_f1": v.finish_f1,
+            "mean_wl_log_loss": v.mean_wl_log_loss,
+            "wl_accuracy": v.wl_accuracy,
         }
         for k, v in s.by_weight_class.items()
     }
@@ -78,6 +80,8 @@ def _slice_to_dict(name: str, y: int, s: Tier1SliceScore) -> Dict[str, Any]:
         "macro_f1": s.macro_f1,
         "wl_f1": s.wl_f1,
         "finish_f1": s.finish_f1,
+        "mean_wl_log_loss": s.mean_wl_log_loss,
+        "wl_accuracy": s.wl_accuracy,
         "by_weight_class": wcs,
     }
 
@@ -87,7 +91,10 @@ def _write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         return
-    keys = ["segment", "year", "n", "mean_log_loss", "mean_brier", "accuracy", "macro_f1", "wl_f1", "finish_f1"]
+    keys = [
+        "segment", "year", "n", "mean_log_loss", "mean_brier", "accuracy", "macro_f1",
+        "wl_f1", "finish_f1", "mean_wl_log_loss", "wl_accuracy",
+    ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
         w.writeheader()
