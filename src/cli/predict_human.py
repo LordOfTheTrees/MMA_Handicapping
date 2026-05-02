@@ -9,12 +9,157 @@ import difflib
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
+from ..cli.common import resolve_date, resolve_weight_class, try_resolve_weight_class
 from ..data.schema import FightRecord, FighterProfile, WeightClass
 from ..data.fighter_names import fighter_ids_for_exact_name
 
 from argparse import ArgumentParser, Namespace
+
+# (screen label, token accepted by ``resolve_weight_class``)
+_PREDICT_HUMAN_WC_MENU_MENS: List[Tuple[str, str]] = [
+    ("Flyweight", "flyweight"),
+    ("Bantamweight", "bantamweight"),
+    ("Featherweight", "featherweight"),
+    ("Lightweight", "lightweight"),
+    ("Welterweight", "welterweight"),
+    ("Middleweight", "middleweight"),
+    ("Light heavyweight", "lhw"),
+    ("Heavyweight", "heavyweight"),
+]
+
+_PREDICT_HUMAN_WC_MENU_WOMENS: List[Tuple[str, str]] = [
+    ("Women's strawweight", "w_strawweight"),
+    ("Women's flyweight", "w_flyweight"),
+    ("Women's bantamweight", "w_bantamweight"),
+    ("Women's featherweight", "w_featherweight"),
+]
+
+_WOMENS_DIVISION_ENUMS = frozenset(
+    {
+        WeightClass.W_STRAWWEIGHT,
+        WeightClass.W_FLYWEIGHT,
+        WeightClass.W_BANTAMWEIGHT,
+        WeightClass.W_FEATHERWEIGHT,
+    }
+)
+
+_MENS_DIVISION_ENUMS = frozenset(
+    {
+        WeightClass.STRAWWEIGHT,
+        WeightClass.FLYWEIGHT,
+        WeightClass.BANTAMWEIGHT,
+        WeightClass.FEATHERWEIGHT,
+        WeightClass.LIGHTWEIGHT,
+        WeightClass.WELTERWEIGHT,
+        WeightClass.MIDDLEWEIGHT,
+        WeightClass.LIGHT_HEAVYWEIGHT,
+        WeightClass.HEAVYWEIGHT,
+    }
+)
+
+
+def _fighter_mens_womens_signals(fights: List[FightRecord], fid: str) -> Tuple[bool, bool]:
+    """Returns ``(seen_men_division, seen_women_division)`` from *fid*'s fight rows."""
+    seen_w = False
+    seen_m = False
+    for f in fights:
+        if f.fighter_a_id != fid and f.fighter_b_id != fid:
+            continue
+        wc = f.weight_class
+        if wc in _WOMENS_DIVISION_ENUMS:
+            seen_w = True
+        elif wc in _MENS_DIVISION_ENUMS:
+            seen_m = True
+    return seen_m, seen_w
+
+
+def _corner_line_guess(fights: List[FightRecord], fid: str) -> Literal["male", "female", "unknown"]:
+    seen_m, seen_w = _fighter_mens_womens_signals(fights, fid)
+    if seen_w and seen_m:
+        return "unknown"
+    if seen_w:
+        return "female"
+    if seen_m:
+        return "male"
+    return "unknown"
+
+
+def _menu_for_corners(
+    fights: List[FightRecord],
+    fid_a: str,
+    fid_b: str,
+) -> Tuple[List[Tuple[str, str]], str]:
+    ga = _corner_line_guess(fights, fid_a)
+    gb = _corner_line_guess(fights, fid_b)
+    if ga == "male" and gb == "male":
+        return (
+            list(_PREDICT_HUMAN_WC_MENU_MENS),
+            "Both corners look men's-only from fight history.",
+        )
+    if ga == "female" and gb == "female":
+        return (
+            list(_PREDICT_HUMAN_WC_MENU_WOMENS),
+            "Both corners look women's-only from fight history.",
+        )
+    combined = _PREDICT_HUMAN_WC_MENU_MENS + [
+        ("Women's strawweight", "w_strawweight"),
+        ("Women's flyweight", "w_flyweight"),
+        ("Women's bantamweight", "w_bantamweight"),
+        ("Women's featherweight", "w_featherweight"),
+    ]
+    if ga != "unknown" and gb != "unknown" and ga != gb:
+        blurb = (
+            "Corners look like a men's vs women's matchup — "
+            "pick the division that applies to this hypothetical fight."
+        )
+    elif ga == "unknown" or gb == "unknown":
+        blurb = (
+            "At least one corner has no clear men's vs women's signal from fight history — "
+            "showing all divisions; names still work (e.g. flyweight vs w_fly)."
+        )
+    else:
+        blurb = (
+            "Showing all divisions — pick the one that applies to this hypothetical fight."
+        )
+    return combined, blurb
+
+
+def _print_weight_class_menu(menu: Sequence[Tuple[str, str]], headline: str) -> None:
+    n = len(menu)
+    print(f"  {headline}", flush=True)
+    print(
+        f"  Enter a number (1–{n}) or a name (e.g. lightweight, lhw, w_fly):",
+        flush=True,
+    )
+    for i, (label, _) in enumerate(menu, start=1):
+        print(f"    {i:2}.  {label}", flush=True)
+
+
+def _prompt_weight_class_interactive(
+    fights: List[FightRecord],
+    fid_a: str,
+    fid_b: str,
+) -> WeightClass:
+    menu, headline = _menu_for_corners(fights, fid_a, fid_b)
+    _print_weight_class_menu(menu, headline)
+    n_menu = len(menu)
+    while True:
+        raw = input("  Weight class (number or name): ").strip()
+        if not raw:
+            print("  Required — try again.", flush=True)
+            continue
+        if raw.isdigit():
+            k = int(raw)
+            if 1 <= k <= n_menu:
+                return resolve_weight_class(menu[k - 1][1])
+            print(f"  Use 1–{n_menu} or a name.", flush=True)
+            continue
+        wc = try_resolve_weight_class(raw)
+        if wc is not None:
+            return wc
+        print("  Unknown — pick a number from the list or a standard name.", flush=True)
 
 
 def _norm(s: str) -> str:
@@ -272,12 +417,11 @@ def cmd_predict_human(args: Namespace) -> None:
             wc = resolve_weight_class(args.weight_class_raw)
             fdate = resolve_date(args.date)
         else:
-            print("  Enter weight class and date for the hypothetical fight.")
-            raw_wc = args.weight_class_raw or input("  Weight class: ").strip()
-            if not raw_wc:
-                print("Weight class required.", file=sys.stderr)
-                sys.exit(1)
-            wc = resolve_weight_class(raw_wc)
+            print("  Enter weight class and date for the hypothetical fight.", flush=True)
+            if args.weight_class_raw:
+                wc = resolve_weight_class(args.weight_class_raw)
+            else:
+                wc = _prompt_weight_class_interactive(fights, fid_a, fid_b)
             raw_d = args.date or input("  Date YYYY-MM-DD: ").strip()
             if not raw_d:
                 print("Date required.", file=sys.stderr)
@@ -296,7 +440,11 @@ def cmd_predict_human(args: Namespace) -> None:
     else:
         result = predictor.predict(fid_a, fid_b, wc, fdate, verbose=True)
         print(f"\nDerived:")
-        print(f"  Total win %    {result.total_win:.2f}")
-        print(f"  Finish win %   {result.finish_win:.2f}")
-        print(f"  Finish lose %  {result.finish_lose:.2f}")
-        print(f"  Decision %     {result.go_to_decision:.2f}\n")
+        print(
+            f"  Total win %    {100 * result.total_win:.2f}  "
+            f"(finish {100 * result.finish_win:.2f}, decision {100 * result.p_win_decision:.2f})"
+        )
+        print(
+            f"  Total lose %   {100 * result.total_lose:.2f}  "
+            f"(finish {100 * result.finish_lose:.2f}, decision {100 * result.p_lose_decision:.2f})\n"
+        )

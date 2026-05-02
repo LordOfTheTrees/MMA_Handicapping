@@ -15,10 +15,10 @@ predict-human  Interactive predict: look up fighters by name (fuzzy), pick past 
 
 Usage
 -----
-    python main.py train --data-dir ./data [--model-path model.pkl]
+    python main.py --model-path ./data/model.pkl train --data-dir ./data
     python -m src.cli.train --data-dir ./data --model-path model.pkl
-    python main.py train ... --no-holdout
-    python main.py train ... --holdout-start 2022-06-01
+    python main.py train --data-dir ./data --no-holdout
+    python main.py train --data-dir ./data --holdout-start 2022-06-01
     python main.py train --data-dir ./data --full-rebuild
     python main.py eval-holdout
     python main.py predict <fighter_a> <fighter_b> <weight_class> [--date YYYY-MM-DD]
@@ -34,6 +34,7 @@ Weight class aliases (case-insensitive)
 Examples
 --------
     python main.py train --data-dir ./data
+    python main.py --model-path ./data/model.pkl train --data-dir ./data --no-holdout
     python main.py predict fighter_001 fighter_002 lightweight
     python main.py predict fighter_001 fighter_002 lightweight --date 2025-06-01
     python main.py explain fighter_001 fighter_002 lightweight
@@ -90,10 +91,14 @@ def cmd_predict(args: argparse.Namespace) -> None:
     result = predictor.predict(args.fighter_a, args.fighter_b, wc, fdate, verbose=True)
 
     print(f"\nDerived:")
-    print(f"  Total win %    {result.total_win:.2f}")
-    print(f"  Finish win %   {result.finish_win:.2f}")
-    print(f"  Finish lose %  {result.finish_lose:.2f}")
-    print(f"  Decision %     {result.go_to_decision:.2f}\n")
+    print(
+        f"  Total win %    {100 * result.total_win:.2f}  "
+        f"(finish {100 * result.finish_win:.2f}, decision {100 * result.p_win_decision:.2f})"
+    )
+    print(
+        f"  Total lose %   {100 * result.total_lose:.2f}  "
+        f"(finish {100 * result.finish_lose:.2f}, decision {100 * result.p_lose_decision:.2f})"
+    )
 
 
 def cmd_explain(args: argparse.Namespace) -> None:

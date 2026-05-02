@@ -39,8 +39,19 @@ _WC_ALIASES = {
 }
 
 
+def _normalize_wc_key(raw: str) -> str:
+    return raw.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def try_resolve_weight_class(raw: str) -> WeightClass | None:
+    """Return a weight class if *raw* matches a known alias; otherwise ``None``."""
+    if not raw.strip():
+        return None
+    return _WC_ALIASES.get(_normalize_wc_key(raw))
+
+
 def resolve_weight_class(raw: str) -> WeightClass:
-    wc = _WC_ALIASES.get(raw.strip().lower().replace("-", "_").replace(" ", "_"))
+    wc = try_resolve_weight_class(raw)
     if wc is None:
         valid = sorted(set(_WC_ALIASES.keys()))
         print(f"Unknown weight class: {raw!r}")

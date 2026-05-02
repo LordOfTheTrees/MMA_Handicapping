@@ -197,6 +197,10 @@ class PredictionResult:
         return self.p_win_ko_tko + self.p_win_submission + self.p_win_decision
 
     @property
+    def total_lose(self) -> float:
+        return self.p_lose_decision + self.p_lose_ko_tko + self.p_lose_submission
+
+    @property
     def finish_win(self) -> float:
         return self.p_win_ko_tko + self.p_win_submission
 

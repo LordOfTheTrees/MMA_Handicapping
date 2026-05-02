@@ -102,15 +102,19 @@ def _print_cold_matchup_banner(
 
 
 def _print_derived_like_predict(result: PredictionResult) -> None:
-    """Match ``main.py cmd_predict`` derived block — values are fractions 0–1."""
+    """Match ``main.py cmd_predict`` derived block (probabilities as 0–100 %)."""
     print("", flush=True)
+    print("Derived (percent of probability mass):", flush=True)
     print(
-        "Derived - values are fractions 0-1 (same as python main.py predict; multiply by 100 for %):"
+        f"  Total win %    {100 * result.total_win:.2f}  "
+        f"(finish {100 * result.finish_win:.2f}, decision {100 * result.p_win_decision:.2f})",
+        flush=True,
     )
-    print(f"  Total win %    {result.total_win:.2f}")
-    print(f"  Finish win %   {result.finish_win:.2f}")
-    print(f"  Finish lose %  {result.finish_lose:.2f}")
-    print(f"  Decision %     {result.go_to_decision:.2f}")
+    print(
+        f"  Total lose %   {100 * result.total_lose:.2f}  "
+        f"(finish {100 * result.finish_lose:.2f}, decision {100 * result.p_lose_decision:.2f})",
+        flush=True,
+    )
     print("", flush=True)
 
 
