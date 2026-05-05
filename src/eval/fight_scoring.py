@@ -15,7 +15,7 @@ Class index mapping (from regression.py):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -101,6 +101,108 @@ class Tier1SliceScore:
     mean_wl_log_loss: float = float("nan")
     wl_accuracy: float = float("nan")
     by_weight_class: Dict[str, WeightClassScoreSlice] = field(default_factory=dict)
+
+
+def tier1_slice_score_from_probs(
+    y_true: Sequence[int],
+    probs: np.ndarray,
+    *,
+    fights: Optional[Sequence[FightRecord]] = None,
+    eps: float = 1e-15,
+) -> Tier1SliceScore:
+    """
+    Same metrics as ``score_tier1_fight_slice`` but from precomputed (n, 6) probability rows.
+
+    *fights* optional: when provided (one per row), fills ``by_weight_class`` slices.
+    """
+    y_list = list(y_true)
+    pr = np.clip(np.asarray(probs, dtype=float), eps, 1.0 - eps)
+    if pr.ndim != 2 or pr.shape[1] != N_CLASSES:
+        raise ValueError(f"probs must be (n, {N_CLASSES}), got {pr.shape}")
+    n = len(y_list)
+    if pr.shape[0] != n:
+        raise ValueError(f"y_true length {n} != probs rows {pr.shape[0]}")
+    if fights is not None and len(fights) != n:
+        raise ValueError("fights length must match y_true when provided")
+
+    log_losses: List[float] = []
+    briers: List[float] = []
+    wl_log_losses: List[float] = []
+    y_pred: List[int] = []
+    by_wc: Dict[str, Dict[str, List[Any]]] = {}
+
+    for i, y in enumerate(y_list):
+        p = pr[i]
+        p = p / np.sum(p)  # renormalize after clip
+        log_losses.append(-float(np.log(p[y])))
+        oh = np.zeros(N_CLASSES, dtype=float)
+        oh[y] = 1.0
+        briers.append(float(np.sum((oh - p) ** 2)))
+        p_win = float(p[0] + p[1] + p[2])
+        p_win = float(min(max(p_win, eps), 1.0 - eps))
+        is_win = y in _WIN_CLASSES
+        wl_log_losses.append(float(-np.log(p_win) if is_win else -np.log(1.0 - p_win)))
+        pred = int(np.argmax(p))
+        y_pred.append(pred)
+
+        if fights is not None:
+            wck = fights[i].weight_class.value
+            if wck not in by_wc:
+                by_wc[wck] = {"ll": [], "br": [], "wll": [], "yt": [], "yp": []}
+            by_wc[wck]["ll"].append(log_losses[-1])
+            by_wc[wck]["br"].append(briers[-1])
+            by_wc[wck]["wll"].append(wl_log_losses[-1])
+            by_wc[wck]["yt"].append(y)
+            by_wc[wck]["yp"].append(pred)
+
+    if n == 0:
+        return Tier1SliceScore(0, float("nan"), float("nan"), float("nan"), float("nan"))
+
+    acc = float(sum(1 for t, p in zip(y_list, y_pred) if t == p) / n)
+    f1 = multiclass_macro_f1(y_list, y_pred)
+
+    wl_true = [_to_wl(c) for c in y_list]
+    wl_pred = [_to_wl(c) for c in y_pred]
+    fin_true = [_to_finish(c) for c in y_list]
+    fin_pred = [_to_finish(c) for c in y_pred]
+    wl_acc = float(sum(1 for t, p in zip(wl_true, wl_pred) if t == p) / n)
+
+    w_slices: Dict[str, WeightClassScoreSlice] = {}
+    for wck, b in by_wc.items():
+        m = len(b["ll"])
+        if m == 0:
+            continue
+        w_acc = float(sum(1 for t, p in zip(b["yt"], b["yp"]) if t == p) / m)
+        w_f1 = multiclass_macro_f1(b["yt"], b["yp"])
+        bwl_t = [_to_wl(c) for c in b["yt"]]
+        bwl_p = [_to_wl(c) for c in b["yp"]]
+        bfin_t = [_to_finish(c) for c in b["yt"]]
+        bfin_p = [_to_finish(c) for c in b["yp"]]
+        b_wl_acc = float(sum(1 for t, p in zip(bwl_t, bwl_p) if t == p) / m)
+        w_slices[wck] = WeightClassScoreSlice(
+            n=m,
+            mean_log_loss=float(np.mean(b["ll"])),
+            mean_brier=float(np.mean(b["br"])),
+            accuracy=w_acc,
+            macro_f1=w_f1,
+            wl_f1=binary_f1(bwl_t, bwl_p),
+            finish_f1=binary_f1(bfin_t, bfin_p),
+            mean_wl_log_loss=float(np.mean(b["wll"])),
+            wl_accuracy=b_wl_acc,
+        )
+
+    return Tier1SliceScore(
+        n=n,
+        mean_log_loss=float(np.mean(log_losses)),
+        mean_brier=float(np.mean(briers)),
+        accuracy=acc,
+        macro_f1=f1,
+        wl_f1=binary_f1(wl_true, wl_pred),
+        finish_f1=binary_f1(fin_true, fin_pred),
+        mean_wl_log_loss=float(np.mean(wl_log_losses)),
+        wl_accuracy=wl_acc,
+        by_weight_class=w_slices,
+    )
 
 
 def score_tier1_fight_slice(

@@ -21,7 +21,7 @@ import dataclasses
 import pickle
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -335,6 +335,73 @@ class MMAPredictor:
     # Stages 4 + 5: Training data construction and regression fit
     # ------------------------------------------------------------------
 
+    def build_xyw_for_fights(
+        self,
+        fights: List[FightRecord],
+        *,
+        matrix_progress_every: int = 0,
+        progress_prefix: str = "  [features]",
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[FightRecord]]:
+        """
+        Build (X, y, recency_weights, included_fights) for the given fight list.
+
+        Only decisive outcomes (encode_outcome from fighter A) are included.
+        Rows match ``train_regression`` / ``predict_proba_point_only`` feature construction.
+        """
+        if self.elo_model is None:
+            raise RuntimeError("Call build_elo() before build_xyw_for_fights().")
+
+        X_rows: List[np.ndarray] = []
+        y_rows: List[int] = []
+        w_rows: List[float] = []
+        included: List[FightRecord] = []
+        today = date.today()
+        n_candidates = len(fights)
+
+        for fi, fight in enumerate(fights):
+            a_id, b_id = fight.fighter_a_id, fight.fighter_b_id
+            wc, fdate = fight.weight_class, fight.fight_date
+
+            label = encode_outcome(fight, a_id)
+            if label is None:
+                continue
+
+            axes_a = self.get_style_axes(a_id, wc, fdate)
+            axes_b = self.get_style_axes(b_id, wc, fdate)
+            elo_a = self.elo_model.get_state(a_id, wc, fdate)
+            elo_b = self.elo_model.get_state(b_id, wc, fdate)
+            prof_a = self.profiles.get(a_id, _empty_profile(a_id))
+            prof_b = self.profiles.get(b_id, _empty_profile(b_id))
+
+            features = build_matchup_features(elo_a, elo_b, axes_a, axes_b, prof_a, prof_b, fdate)
+            x = features_to_array(features)
+
+            X_rows.append(x)
+            y_rows.append(label)
+            days_old = max(0, (today - fdate).days)
+            w_rows.append(1.0 / (1.0 + days_old / 365.0))
+            included.append(fight)
+
+            n_done = len(X_rows)
+            if matrix_progress_every > 0 and (
+                n_done == 1 or n_done % matrix_progress_every == 0
+            ):
+                print(
+                    f"{progress_prefix} {n_done:,} rows "
+                    f"(scanned {fi + 1:,} / {n_candidates:,} fight candidates)",
+                    flush=True,
+                )
+
+        if not X_rows:
+            raise RuntimeError("No valid decisive fights in the provided list.")
+
+        return (
+            np.array(X_rows),
+            np.array(y_rows, dtype=int),
+            np.array(w_rows, dtype=float),
+            included,
+        )
+
     def train_regression(
         self,
         *,
@@ -377,52 +444,11 @@ class MMAPredictor:
             flush=True,
         )
 
-        n_train_candidates = len(training_fights)
-        X_rows, y_rows, w_rows = [], [], []
-        today = date.today()
-
-        for fi, fight in enumerate(training_fights):
-            a_id, b_id = fight.fighter_a_id, fight.fighter_b_id
-            wc, fdate = fight.weight_class, fight.fight_date
-
-            label = encode_outcome(fight, a_id)
-            if label is None:
-                continue
-
-            axes_a = self.get_style_axes(a_id, wc, fdate)
-            axes_b = self.get_style_axes(b_id, wc, fdate)
-            elo_a = self.elo_model.get_state(a_id, wc, fdate)
-            elo_b = self.elo_model.get_state(b_id, wc, fdate)
-            prof_a = self.profiles.get(a_id, _empty_profile(a_id))
-            prof_b = self.profiles.get(b_id, _empty_profile(b_id))
-
-            features = build_matchup_features(elo_a, elo_b, axes_a, axes_b, prof_a, prof_b, fdate)
-            x = features_to_array(features)
-
-            X_rows.append(x)
-            y_rows.append(label)
-            days_old = max(0, (today - fdate).days)
-            w_rows.append(1.0 / (1.0 + days_old / 365.0))
-
-            n_done = len(X_rows)
-            if matrix_progress_every > 0 and (
-                n_done == 1 or n_done % matrix_progress_every == 0
-            ):
-                print(
-                    f"  [train] {n_done:,} regression rows "
-                    f"(scanned {fi + 1:,} / {n_train_candidates:,} train-candidate fights)",
-                    flush=True,
-                )
-
-        if not X_rows:
-            raise RuntimeError(
-                "No valid training fights found. Check data_dir, Config.master_start_year, "
-                "and holdout_start_date (holdout may have removed all rows)."
-            )
-
-        self._X_train = np.array(X_rows)
-        self._y_train = np.array(y_rows, dtype=int)
-        self._train_weights = np.array(w_rows)
+        self._X_train, self._y_train, self._train_weights, _ = self.build_xyw_for_fights(
+            training_fights,
+            matrix_progress_every=matrix_progress_every,
+            progress_prefix="  [train]",
+        )
 
         if not fit_model:
             print(
