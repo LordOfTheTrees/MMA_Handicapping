@@ -9,7 +9,7 @@ A React SPA frontend served by a FastAPI backend, deployed on Render.com with a 
 ## Goals
 
 - Interactive, visually rich matchup tool and fighter explorer
-- Custom domain, SEO-friendly (Bing/Google indexable)
+- Custom domain (**production:** **`https://octagonelo.com`** on Render HTTPS), SEO-friendly (Bing/Google indexable)
 - ~$7/month hosting (Render.com Web Service)
 - Model IP fully protected — methodology never leaves this private repo
 
@@ -262,11 +262,13 @@ Design language: **dark background, glassmorphism cards, accent color (red/gold 
 
 ## SEO Strategy
 
+Canonical origin: **`https://octagonelo.com`**.
+
 Fighter and event pages are pre-rendered as HTML (server-side via FastAPI Jinja2 templates or a static generation step) so Bing can index them without running JavaScript.
 
-- `/fighters/islam-makhachev` — indexable fighter page
-- `/events/ufc-314` — indexable event page
-- `/sitemap.xml` — auto-generated from fighter profiles + event list
+- `https://octagonelo.com/fighters/islam-makhachev` — indexable fighter page
+- `https://octagonelo.com/events/ufc-314` — indexable event page
+- `https://octagonelo.com/sitemap.xml` — auto-generated from fighter profiles + event list
 - Each page has `<title>`, `<meta description>`, and JSON-LD structured data
 
 ---
@@ -277,7 +279,7 @@ Fighter and event pages are pre-rendered as HTML (server-side via FastAPI Jinja2
 |-------|------|-----------|
 | 1 | `scripts/export_artifacts.py` + round-trip validation | 1 day |
 | 2 | `api/inference.py` standalone predictor + FastAPI skeleton | 1–2 days |
-| 3 | Render deploy + custom domain + HTTPS | 1 day |
+| 3 | Render deploy + **`octagonelo.com`** custom domain + HTTPS | 1 day |
 | 4 | React frontend (matchup builder, probability viz) | 3–5 days |
 | 5 | Fighter profiles + event card pages | 2–3 days |
 | 6 | SEO (pre-render, sitemap) + GH Actions self-runner | 1–2 days |
@@ -303,6 +305,6 @@ Fighter and event pages are pre-rendered as HTML (server-side via FastAPI Jinja2
 - [ ] `POST /api/predict` returns 6 probs summing to 1.0
 - [ ] Fighter fuzzy search returns correct results within 300ms
 - [ ] React SPA loads and matchup builder works end-to-end in browser
-- [ ] Custom domain resolves with HTTPS on Render
+- [ ] **`octagonelo.com`** resolves with HTTPS on Render
 - [ ] Bing Webmaster Tools confirms sitemap indexed
 - [ ] GitHub Actions refresh workflow completes on manual trigger
