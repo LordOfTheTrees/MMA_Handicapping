@@ -89,7 +89,7 @@ python scripts/run_harness.py integration --model path/to/model.pkl
 python scripts/run_harness.py -q integration      # quieter (no -v)
 ```
 
-Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_HARNESS_MODEL`**, then **`data/model.pkl`**, then **`tests/fixtures/parity/model.pkl`**. More detail: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).
+Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_HARNESS_MODEL`** if set and the path exists, otherwise **`data/model.pkl`**. More detail: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).
 
 ---
 

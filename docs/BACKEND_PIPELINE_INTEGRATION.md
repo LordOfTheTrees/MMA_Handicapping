@@ -38,11 +38,10 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 
 **Date contract:** **`elo_states.json`** and **`style_axes.json`** store a single timeline slice: **`as_of_date`**. Snapshot inference ([`src/export/json_inference.py`](../src/export/json_inference.py)) only matches the pickle when **`fight_date == as_of_date`** for that export (same as [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) `--as-of-date`). The pickle can differ for other dates because it runs full temporal ELO/style.
 
-**Enable integration tests (export smoke + parity):** a trained **`model.pkl`** must exist. Resolution order:
+**Enable integration tests (export smoke + parity):** a trained **`model.pkl`** must exist:
 
-1. **`MMA_HARNESS_MODEL`** (optional path override), **else**
-2. **`data/model.pkl`** at repo root (default—the usual train output path), **else**
-3. **`tests/fixtures/parity/model.pkl`** (optional committed/copied fixture).
+1. **`MMA_HARNESS_MODEL`** — optional path override **only if** that file exists  
+2. **`data/model.pkl`** at repo root (**default** after train)
 
 **Commands** (from repo root):
 
@@ -57,7 +56,7 @@ python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events
 python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
 ```
 
-**Console output:** The unittest **`skipped '…'`** line for parity/smoke now embeds **`HARNESS_SKIP_REASON`** (`tests.harness_skip`): env path, **`data/model.pkl`**, **`tests/fixtures/parity/model.pkl`**, each with **`exists=`** so skip is obvious without digging for stderr banners. Loading those modules still prints the long **stderr** banner (`print_harness_integration_preamble`).
+**Console output:** The unittest **`skipped '…'`** line embeds **`HARNESS_SKIP_REASON`** (`tests.harness_skip`): env path and **`data/model.pkl`**, each with **`exists=`**. Loading those modules still prints the stderr banner (`print_harness_integration_preamble`).
 
 If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle vs JSON values and **max_abs_delta** (treat as exporter/loader drift until fixed).
 
@@ -108,7 +107,7 @@ Details:
 3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
 4. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
 
-**Exit:** four + upcoming JSON files from a manual or CI run; parity tests run when **`data/model.pkl`** exists (or **`MMA_HARNESS_MODEL`** / **`tests/fixtures/parity/model.pkl`**).
+**Exit:** four + upcoming JSON files from a manual or CI run; parity tests run when **`data/model.pkl`** exists **or** **`MMA_HARNESS_MODEL`** points at a file that exists.
 
 ---
 

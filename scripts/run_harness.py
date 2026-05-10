@@ -12,7 +12,7 @@ Suites:
   quick         Offline unit tests only (no model.pkl needed).
   integration   Export smoke + pickle vs JSON parity (needs model; see tests/harness_skip.py).
 
-Model resolution matches tests: MMA_HARNESS_MODEL, else data/model.pkl, else tests/fixtures/parity/model.pkl.
+Model resolution matches tests: **`MMA_HARNESS_MODEL`** if set and the file exists, else **`data/model.pkl`**.
 Use --model to set MMA_HARNESS_MODEL for this run only (optional).
 """
 from __future__ import annotations

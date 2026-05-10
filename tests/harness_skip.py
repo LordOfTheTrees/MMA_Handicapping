@@ -9,7 +9,6 @@ _REPO = Path(__file__).resolve().parents[1]
 
 _ENV_VAR = "MMA_HARNESS_MODEL"
 _DEFAULT_DATA_PKL = _REPO / "data" / "model.pkl"
-_FIXTURE_PKL = _REPO / "tests" / "fixtures" / "parity" / "model.pkl"
 
 
 def _display_path(p: Path) -> str:
@@ -26,7 +25,7 @@ def harness_env_raw() -> str:
 
 
 def harness_model_path() -> Path | None:
-    """First match wins: env override, then ``data/model.pkl``, then fixture path."""
+    """First match wins: env override when file exists, else ``data/model.pkl``."""
     raw = harness_env_raw()
     if raw:
         cand = Path(raw).expanduser().resolve()
@@ -35,9 +34,6 @@ def harness_model_path() -> Path | None:
     data_pkl = _DEFAULT_DATA_PKL.resolve()
     if data_pkl.is_file():
         return data_pkl
-    fixed = _FIXTURE_PKL.resolve()
-    if fixed.is_file():
-        return fixed
     return None
 
 
@@ -55,9 +51,7 @@ def _harness_miss_detail_parts() -> list[str]:
         parts.append("env unset")
 
     dd = _DEFAULT_DATA_PKL.resolve()
-    fx = _FIXTURE_PKL.resolve()
     parts.append(f"default data/model.pkl {_display_path(dd)} exists={dd.is_file()}")
-    parts.append(f"fixture tests/fixtures/parity/model.pkl {_display_path(fx)} exists={fx.is_file()}")
     return parts
 
 
@@ -65,7 +59,7 @@ def _harness_miss_detail_parts() -> list[str]:
 HARNESS_SKIP_REASON = (
     "No model.pkl resolved (checks: "
     + " ; ".join(_harness_miss_detail_parts())
-    + "). Train to data/model.pkl or set MMA_HARNESS_MODEL=<path>; stderr has full MMA_HARNESS_INTEGRATION banner."
+    + "). Train to data/model.pkl or set MMA_HARNESS_MODEL=<path>; stderr has MMA_HARNESS_INTEGRATION banner."
     if not HAS_HARNESS_MODEL
     else "OK: model pickle resolved (never shown as skip reason)"
 )
@@ -89,7 +83,6 @@ def print_harness_integration_preamble(*, module: str, description: str) -> None
         f" Resolution order:",
         f"   1. Environment variable {_ENV_VAR} (optional override)",
         f"   2. Default repo path   {_display_path(_DEFAULT_DATA_PKL)}",
-        f"   3. Test fixture        {_display_path(_FIXTURE_PKL)}",
         "",
     ]
     raw = harness_env_raw()
@@ -100,14 +93,12 @@ def print_harness_integration_preamble(*, module: str, description: str) -> None
         lines.append(f"   expanded..: {_display_path(expanded)}")
         lines.append(f"   is_file:    {exists}")
         if not exists:
-            lines.append("   (missing -> fall through to default data path, then fixture)")
+            lines.append("   (missing -> fall through to default data/model.pkl)")
     else:
         lines.append(f" {_ENV_VAR} is not set (using default path if present).")
 
     lines.append(f" Default: {_display_path(_DEFAULT_DATA_PKL)}")
     lines.append(f"   exists: {_DEFAULT_DATA_PKL.resolve().is_file()}")
-    lines.append(f" Fixture: {_display_path(_FIXTURE_PKL)}")
-    lines.append(f"   exists: {_FIXTURE_PKL.resolve().is_file()}")
     lines.append("")
 
     resolved = harness_model_path()
@@ -120,12 +111,11 @@ def print_harness_integration_preamble(*, module: str, description: str) -> None
     else:
         lines.append(" RESULT: INTEGRATION TESTS IN THIS FILE ARE SKIPPED (no pickle found).")
         lines.append("")
-        lines.append(" Put a trained model at the default path, or set the env override, or use the fixture path:")
-        lines.append(f"   -> {_display_path(_DEFAULT_DATA_PKL)}  (default after train)")
-        lines.append(f"   -> {_ENV_VAR}=<path>  ( optional )")
-        lines.append(f"   -> {_display_path(_FIXTURE_PKL)}  ( optional )")
+        lines.append(" Train a model to the default path or set the env override:")
+        lines.append(f"   -> {_display_path(_DEFAULT_DATA_PKL)}  (usual after train)")
+        lines.append(f"   -> {_ENV_VAR}=<path>  (override)")
         lines.append("")
-        lines.append(" Then: python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v")
+        lines.append(" Then: python scripts/run_harness.py integration")
 
     lines.append("=" * 80)
     lines.append("")
