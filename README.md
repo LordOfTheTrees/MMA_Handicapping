@@ -31,7 +31,7 @@ Design detail lives in [`docs/architecture.md`](docs/architecture.md). **CLI fla
 | [`src/cli/train.py`](src/cli/train.py) | Dedicated train entrypoint: **`python -m src.cli.train`** (same flags as `main.py train` + top-level `--model-path`) |
 | `src/data/` | Schemas, loaders, UFCStats scrapers, `refresh_data` |
 | `src/elo/`, `src/features/`, `src/matchup/`, `src/model/`, `src/confidence/` | Stages |
-| [`scripts/`](scripts/) | Diagnostics, pilots, and **JSON export for `mma.ai`** (`export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py` — see [Website export](#website-export-mmaai)); core model CLIs live under **`src/cli/`** |
+| [`scripts/`](scripts/) | **`run_harness.py`** wraps unittest (`quick` / `integration` / full `discover`). Also **JSON export for `mma.ai`** (`export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py` — see [Website export](#website-export-mmaai)); core model CLIs live under **`src/cli/`** |
 | [`src/cli/plot_prediction_three_viz.py`](src/cli/plot_prediction_three_viz.py) | Optional **split-barrier** PNG for a fight; chart copy uses **integer %** (ADR-22) |
 | `data/` | Local CSVs and artifacts (gitignored where appropriate; see `.gitignore`) |
 
@@ -74,6 +74,22 @@ python -m src.data.ufcstats_profiles --data-dir ./data
 ```
 
 `python main.py train --data-dir ./data --full-rebuild` runs `refresh_data()` (Tier‑1 fights CSV, fighter profiles, and **`data/upcoming_cards.json`**) before training unless you bypass with **`--no-scrape`** / **`--skip-refresh-if-present`**. The upcoming file is **for the website export path only** and is **not** read when fitting the model (see **ADR-23** in [`docs/architecture-decisions.md`](docs/architecture-decisions.md)). Timing, **`failed_entries.csv`**, and scrape caps: [`TODO.md`](TODO.md), [`docs/todo.md`](docs/todo.md).
+
+---
+
+## Test harness (`scripts/run_harness.py`)
+
+Wraps **`unittest`** so you don’t need discovery flags. Repo root = directory with **`main.py`**.
+
+```bash
+python scripts/run_harness.py                     # all modules under tests/
+python scripts/run_harness.py quick               # offline only (no model.pkl)
+python scripts/run_harness.py integration         # export smoke + pickle vs JSON parity
+python scripts/run_harness.py integration --model path/to/model.pkl
+python scripts/run_harness.py -q integration      # quieter (no -v)
+```
+
+Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_HARNESS_MODEL`**, then **`data/model.pkl`**, then **`tests/fixtures/parity/model.pkl`**. More detail: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).
 
 ---
 

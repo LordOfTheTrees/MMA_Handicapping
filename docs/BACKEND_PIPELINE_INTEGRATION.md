@@ -47,10 +47,13 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 **Commands** (from repo root):
 
 ```bash
-# No pickle: JSON loader + upcoming transform
-python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events_export tests.test_upcoming_bouts_parse -v
+# One entrypoint (recommended): see scripts/run_harness.py
+python scripts/run_harness.py quick
+python scripts/run_harness.py integration
+python scripts/run_harness.py                         # full discover
 
-# Requires pickle: export smoke + strict pickle vs exported JSON (bit-identical float64 (6,) probs)
+# Raw unittest (same suites the script calls)
+python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events_export tests.test_upcoming_bouts_parse -v
 python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
 ```
 
