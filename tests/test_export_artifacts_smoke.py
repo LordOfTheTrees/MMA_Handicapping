@@ -35,7 +35,7 @@ def setUpModule() -> None:
 
 @unittest.skipUnless(
     HAS_HARNESS_MODEL,
-    "No pickle for harness (stderr banner above explains MMA_HARNESS_MODEL / fixtures).",
+    "No pickle for harness (see stderr banner: data/model.pkl, MMA_HARNESS_MODEL, fixture).",
 )
 class TestExportArtifactsSmoke(unittest.TestCase):
     def test_export_all_writes_four_valid_json_files(self) -> None:

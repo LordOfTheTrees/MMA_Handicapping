@@ -38,10 +38,11 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 
 **Date contract:** **`elo_states.json`** and **`style_axes.json`** store a single timeline slice: **`as_of_date`**. Snapshot inference ([`src/export/json_inference.py`](../src/export/json_inference.py)) only matches the pickle when **`fight_date == as_of_date`** for that export (same as [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) `--as-of-date`). The pickle can differ for other dates because it runs full temporal ELO/style.
 
-**Enable integration tests (export smoke + parity):**
+**Enable integration tests (export smoke + parity):** a trained **`model.pkl`** must exist. Resolution order:
 
-1. Set environment variable **`MMA_HARNESS_MODEL`** to an absolute or relative path of a trained **`model.pkl`**, **or**
-2. Place a copy at **`tests/fixtures/parity/model.pkl`**.
+1. **`MMA_HARNESS_MODEL`** (optional path override), **else**
+2. **`data/model.pkl`** at repo root (default—the usual train output path), **else**
+3. **`tests/fixtures/parity/model.pkl`** (optional committed/copied fixture).
 
 **Commands** (from repo root):
 
@@ -53,7 +54,7 @@ python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events
 python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
 ```
 
-**Console output:** Loading [`tests.test_export_artifacts_smoke`](../tests/test_export_artifacts_smoke.py) or [`tests.test_artifact_parity`](../tests/test_artifact_parity.py) prints a **stderr** banner from [`tests/harness_skip.py`](../tests/harness_skip.py) (`print_harness_integration_preamble`): whether **`MMA_HARNESS_MODEL`** was set, whether the path exists, whether the fixture pickle exists, **RUN vs SKIP**, and copy-paste commands. Parity mode also prints per-subtest lines (`[parity] Subtest ...`, `OK: ...`) and smoke prints `[export smoke] ...`. This is intentional for human assurance; some IDEs label stderr as warnings even when the run is successful.
+**Console output:** Loading [`tests.test_export_artifacts_smoke`](../tests/test_export_artifacts_smoke.py) or [`tests.test_artifact_parity`](../tests/test_artifact_parity.py) prints a **stderr** banner from [`tests/harness_skip.py`](../tests/harness_skip.py) (`print_harness_integration_preamble`): env override **`MMA_HARNESS_MODEL`**, default **`data/model.pkl`**, fixture path, which one was chosen, **RUN vs SKIP**. Parity mode also prints per-subtest lines (`[parity] Subtest ...`, `OK: ...`) and smoke prints `[export smoke] ...`. This is intentional for human assurance; some IDEs label stderr as warnings even when the run is successful.
 
 If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle vs JSON values and **max_abs_delta** (treat as exporter/loader drift until fixed).
 
@@ -104,7 +105,7 @@ Details:
 3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
 4. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
 
-**Exit:** four + upcoming JSON files from a manual or CI run; parity test passes when **`MMA_HARNESS_MODEL`** (or fixtures pickle) is set.
+**Exit:** four + upcoming JSON files from a manual or CI run; parity tests run when **`data/model.pkl`** exists (or **`MMA_HARNESS_MODEL`** / **`tests/fixtures/parity/model.pkl`**).
 
 ---
 

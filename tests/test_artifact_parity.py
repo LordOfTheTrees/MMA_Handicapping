@@ -35,7 +35,7 @@ def setUpModule() -> None:
 
 @unittest.skipUnless(
     HAS_HARNESS_MODEL,
-    "No pickle for harness (stderr banner above explains MMA_HARNESS_MODEL / fixtures).",
+    "No pickle for harness (see stderr banner: data/model.pkl, MMA_HARNESS_MODEL, fixture).",
 )
 class TestPickleVsJsonParity(unittest.TestCase):
     def test_exported_bundle_matches_predict_proba_point_only(self) -> None:
