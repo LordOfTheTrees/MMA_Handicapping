@@ -1,13 +1,14 @@
 """Build ``reference_distributions.json`` in the shape ``mma.ai`` expects (`api/reference_distributions.py`).
 
 Core contract: ``matchup_features`` with 101-point empirical quantile grids (percentiles 0…100),
-optional ``division_elo``, optional ``global_days_idle``. Schema version is the same as other
-deploy JSONs: ``mma-handicapping-export-v1``.
+``global_days_idle`` (layoff reference / mma.ai fight pages), optional ``division_elo``. Schema
+version is the same as other deploy JSONs: ``mma-handicapping-export-v1``.
 
 Extra top-level keys (e.g. ``chart_histograms``) are preserved by mma.ai after validation.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from datetime import date
 from typing import Any, Optional
 
@@ -108,8 +109,61 @@ def _histogram_block(
     return base
 
 
+def _fighter_global_fight_dates_sorted(fights: list) -> dict[str, list[date]]:
+    """Chronological fight dates per fighter (all divisions), from full ``predictor.fights``."""
+    from collections import defaultdict
+
+    m: dict[str, list[date]] = defaultdict(list)
+    for f in fights:
+        m[f.fighter_a_id].append(f.fight_date)
+        m[f.fighter_b_id].append(f.fight_date)
+    for fid in m:
+        m[fid].sort()
+    return m
+
+
+def days_idle_global_at_fight_date(
+    fight_dates_by_fighter: dict[str, list[date]],
+    fighter_id: str,
+    fight_date: date,
+) -> int:
+    """
+    Calendar days from this fighter's most recent bout **strictly before** ``fight_date``,
+    in any division (global layoff clock / ADR‑15). Debut appearance → ``0``.
+    """
+    seq = fight_dates_by_fighter.get(fighter_id)
+    if not seq:
+        return 0
+    i = bisect_left(seq, fight_date)
+    if i == 0:
+        return 0
+    prev = seq[i - 1]
+    return max(0, (fight_date - prev).days)
+
+
+def collect_global_days_idle_training_corners(predictor: MMAPredictor) -> np.ndarray:
+    """
+    Two samples per training bout (corners A and B): calendar days since last bout in any
+    division **before** that fight's ``fight_date`` (computed from full fight history, not
+    ``ELOModel._last_fight_global``, which reflects only **terminal** post-backfill state).
+    Uses the same decisive training rows as ``_X_train`` (via ``_train_included_fights``).
+    """
+    if predictor.elo_model is None:
+        raise RuntimeError("collect_global_days_idle_training_corners requires build_elo().")
+    _ensure_training_matrix(predictor)
+    included = getattr(predictor, "_train_included_fights", None)
+    if not included:
+        return np.array([], dtype=float)
+    cal = _fighter_global_fight_dates_sorted(predictor.fights)
+    out: list[float] = []
+    for f in included:
+        out.append(float(days_idle_global_at_fight_date(cal, f.fighter_a_id, f.fight_date)))
+        out.append(float(days_idle_global_at_fight_date(cal, f.fighter_b_id, f.fight_date)))
+    return np.array(out, dtype=float)
+
+
 def _ensure_training_matrix(predictor: MMAPredictor) -> np.ndarray:
-    if predictor._X_train is not None:
+    if predictor._X_train is not None and getattr(predictor, "_train_included_fights", None) is not None:
         return predictor._X_train
     predictor.train_regression(fit_model=False)
     if predictor._X_train is None:
@@ -226,19 +280,31 @@ def build_reference_distributions_document(
 
     *export_schema_version* must be ``mma-handicapping-export-v1`` (same as ``model_weights.json``).
     """
+    idle_arr = collect_global_days_idle_training_corners(predictor)
     doc: dict[str, Any] = {
         "export_manifest": manifest,
         "export_schema_version": export_schema_version,
         "as_of_date": as_of.isoformat(),
         "matchup_features": build_matchup_feature_quantile_grids(predictor),
+        "global_days_idle": quantile_grid_block_from_sample(idle_arr),
         "division_elo": build_division_elo_quantile_grids(predictor, as_of),
         "chart_histograms": {
             "training_features": build_training_histogram_extras(predictor),
+            "global_days_idle": {
+                "cohort": (
+                    "two samples per training bout (A and B); days since prior bout in any division "
+                    "(from full fight chronology, strictly before fight_date); same decisive rows as "
+                    "matchup_features"
+                ),
+                "n_bins": int(DEFAULT_TRAINING_BINS),
+                **_histogram_block(idle_arr, n_bins=DEFAULT_TRAINING_BINS),
+            },
             "elo_by_division": build_elo_division_chart_extras(predictor, as_of),
         },
         "notes": (
-            "matchup_features + division_elo: 101-point empirical quantiles for mma.ai "
-            "(reference_distributions.json). chart_histograms: optional bin/count payloads for SPA."
+            "matchup_features + division_elo + global_days_idle: 101-point empirical quantiles "
+            "for mma.ai (reference_distributions.json). chart_histograms: optional bin/count "
+            "payloads for SPA."
         ),
     }
     return doc

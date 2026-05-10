@@ -85,6 +85,9 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                         for v in block["values"][1:]:
                             self.assertGreaterEqual(float(v), prev - 1e-9)
                             prev = float(v)
+                    gdi = doc["global_days_idle"]
+                    self.assertEqual(gdi["percentile_levels"], list(QUANTILE_PERCENT_LEVELS))
+                    self.assertEqual(len(gdi["values"]), N_QUANTILE_POINTS)
                     ch = doc["chart_histograms"]
                     tf = ch["training_features"]
                     self.assertGreater(tf["n_rows"], 0)
@@ -93,6 +96,9 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                         self.assertIn("histogram", tblock)
                         self.assertIn("percentiles", tblock)
                         self.assertEqual(len(tblock["percentiles"]), len(CHART_PERCENTILE_LEVELS))
+                    gid = ch["global_days_idle"]
+                    self.assertIn("histogram", gid)
+                    self.assertEqual(gid["n"], 2 * tf["n_rows"])
                     divs = ch["elo_by_division"]["divisions"]
                     self.assertIsInstance(divs, dict)
                     self.assertGreater(len(divs), 0)

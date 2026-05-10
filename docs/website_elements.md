@@ -160,8 +160,8 @@ Modeled after `2023-03-04_split_barrier.png`:
   - `elo_by_division.png` — ELO distribution histograms across all divisions (as of 2026-04-19), showing spread and clustering per weight class
   - `data/figures/division_elo_histograms/*.png` — One histogram per weight class (from `python -m src.cli.chart_elo_distributions`)
   - **Precomputed chart data:** **`reference_distributions.json`** (mma.ai contract: `matchup_features` + `division_elo` quantile grids; optional nested **`chart_histograms`** for bin/count payloads) — export next to other deploy JSONs from `export_artifacts.py`
-  - `histogram_all_grid.png` — Full grid of all 12 regression training features (n=6,366 bouts)
-  - Individual feature histograms: `elo_differential`, `striker_score_diff`, `grappler_score_diff`, `finish_threat_diff`, `finish_vulnerability_diff`, `striking_matchup`, `grappling_matchup`, `finish_matchup`, `reach_diff_cm`, `height_diff_cm`, `stance_mismatch`, `age_diff_days`
+  - `histogram_all_grid.png` — Full grid of regression training feature densities (12 panels today; add **global days idle** when regenerating — see **[`days-idle-histogram-for-mma-ai.md`](days-idle-histogram-for-mma-ai.md)**)
+  - Individual feature histograms: `elo_differential`, `striker_score_diff`, `grappler_score_diff`, `finish_threat_diff`, `finish_vulnerability_diff`, `striking_matchup`, `grappling_matchup`, `finish_matchup`, `reach_diff_cm`, `height_diff_cm`, `stance_mismatch`, `age_diff_days`, **`histogram_global_days_idle.png`** (global layoff / `global_days_idle`; copy to **`mma.ai`** `frontend/public/model-viz/feature_histograms/` per that doc)
 
 ### Last — Contact Me
 - Standard contact page

@@ -231,6 +231,9 @@ class TestSiteExportPages(unittest.TestCase):
             block = mf[fn]
             self.assertEqual(block["percentile_levels"], list(QUANTILE_PERCENT_LEVELS))
             self.assertEqual(len(block["values"]), N_QUANTILE_POINTS)
+        gdi = doc["global_days_idle"]
+        self.assertEqual(gdi["percentile_levels"], list(QUANTILE_PERCENT_LEVELS))
+        self.assertEqual(len(gdi["values"]), N_QUANTILE_POINTS)
         tf = doc["chart_histograms"]["training_features"]
         for fn in FEATURE_NAMES:
             tblock = tf["features"][fn]
@@ -238,9 +241,15 @@ class TestSiteExportPages(unittest.TestCase):
             self.assertIsNotNone(hist, msg=f"{fn} missing histogram")
             self.assertEqual(len(hist["counts"]), len(hist["bin_edges"]) - 1)
             self.assertEqual(len(tblock["percentiles"]), len(CHART_PERCENTILE_LEVELS))
+        gid = doc["chart_histograms"]["global_days_idle"]
+        self.assertIn("histogram", gid)
+        ghist = gid["histogram"]
+        self.assertIsNotNone(ghist)
+        self.assertEqual(len(ghist["counts"]), len(ghist["bin_edges"]) - 1)
+        self.assertEqual(2 * tf["n_rows"], gid["n"])
         print(
             f"[site_pages] Reference distributions: OK "
-            f"(training_rows={tf['n_rows']} "
+            f"(training_rows={tf['n_rows']} idle_corners={doc['chart_histograms']['global_days_idle']['n']} "
             f"chart_divisions={len(doc['chart_histograms']['elo_by_division']['divisions'])} "
             f"quantile_divisions={len(doc.get('division_elo') or {})}) "
             "ref=mma.ai api/reference_distributions",

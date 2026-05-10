@@ -1,8 +1,8 @@
 {
   "export_manifest": {
     "export_schema_version": "mma-handicapping-export-v1",
-    "exported_at": "2026-05-10T16:00:30Z",
-    "git_sha_training_repo": "9184d665d1ef428c13bfe6e08172161ef5a228a0",
+    "exported_at": "2026-05-10T18:50:18Z",
+    "git_sha_training_repo": "b62b4c3c831b29ae638ecac9dc6391d7c8287c27",
     "as_of_date": "2026-04-11",
     "notes": "Produced by MMA_Handicapping scripts/export_artifacts.py"
   },

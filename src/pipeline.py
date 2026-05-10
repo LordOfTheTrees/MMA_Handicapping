@@ -122,6 +122,8 @@ class MMAPredictor:
         self._X_train: Optional[np.ndarray] = None
         self._y_train: Optional[np.ndarray] = None
         self._train_weights: Optional[np.ndarray] = None
+        #: Fights that produced each row of ``_X_train`` (decisive Tier-1 train set); set in ``train_regression``.
+        self._train_included_fights: Optional[List[FightRecord]] = None
         #: Structured summary of coefficient norms (from last ``train_regression`` with fit).
         self.training_regression_audit: Optional[Dict[str, Any]] = None
 
@@ -444,10 +446,12 @@ class MMAPredictor:
             flush=True,
         )
 
-        self._X_train, self._y_train, self._train_weights, _ = self.build_xyw_for_fights(
-            training_fights,
-            matrix_progress_every=matrix_progress_every,
-            progress_prefix="  [train]",
+        self._X_train, self._y_train, self._train_weights, self._train_included_fights = (
+            self.build_xyw_for_fights(
+                training_fights,
+                matrix_progress_every=matrix_progress_every,
+                progress_prefix="  [train]",
+            )
         )
 
         if not fit_model:
@@ -795,6 +799,8 @@ class MMAPredictor:
             self._bootstrap_W = None
         if "training_regression_audit" not in self.__dict__:
             self.training_regression_audit = None
+        if "_train_included_fights" not in self.__dict__:
+            self._train_included_fights = None
         cfg = self.__dict__.get("config")
         if cfg is not None:
             if not hasattr(cfg, "master_start_year"):

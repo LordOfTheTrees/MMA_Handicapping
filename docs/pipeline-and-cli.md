@@ -116,7 +116,7 @@ Implementations live under [`src/cli/`](../src/cli/). From the repo root, run wi
 |--------|------|
 | [`src/cli/run_phase3_tuning.py`](../src/cli/run_phase3_tuning.py) | Phase‑3 walk‑forward / pristine evaluation CSV+JSON (`docs/hyperparameter-tuning.md`). |
 | [`src/cli/plot_prediction_three_viz.py`](../src/cli/plot_prediction_three_viz.py) | Split-barrier and related single-fight prediction figures; **percent labels are whole numbers** (see ADR-22). |
-| [`src/cli/plot_training_feature_histograms.py`](../src/cli/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. |
+| [`src/cli/plot_training_feature_histograms.py`](../src/cli/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. **Global days idle** figure for **`mma.ai`**: [`days-idle-histogram-for-mma-ai.md`](days-idle-histogram-for-mma-ai.md). |
 | [`scripts/pilot_lbfgs_stopping.py`](../scripts/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
 | [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) | Phase‑2 smoke checks. |
 | [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization: combined division grid (`data/elo_by_division.png`) plus per-division PNGs under `data/figures/division_elo_histograms/` by default. |

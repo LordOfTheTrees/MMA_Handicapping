@@ -108,7 +108,7 @@ Entry points:
 Details:
 
 1. **`model_weights.json`** — **`W`** (6×12), bootstrap draws / config for CI routing (**`ModelConfig`**, **`ci_alpha`**, bootstrap count, elo_MC / Cauchy switches per training). **`export_manifest`** includes `git_sha_training`, `exported_at`, schema version.
-2. **`reference_distributions.json`** — **`matchup_features`**: 101-point empirical quantiles per regression feature (percentiles 0…100). Optional **`global_days_idle`**. **`division_elo`**: per–weight-class ELO quantiles at snapshot. Training repo may add **`chart_histograms`** (bins/counts) for static charts; **`mma.ai`** preserves these keys after validation.
+2. **`reference_distributions.json`** — **`matchup_features`**: 101-point empirical quantiles per regression feature (percentiles 0…100). Optional **`global_days_idle`**. **`division_elo`**: per–weight-class ELO quantiles at snapshot. Training repo may add **`chart_histograms`** (bins/counts) for static charts; **`mma.ai`** preserves these keys after validation. **Layoff histogram + export contract:** [`docs/days-idle-histogram-for-mma-ai.md`](days-idle-histogram-for-mma-ai.md).
 3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
 4. Loads the **same** shipped **`MMAPredictor`** pickle as **`python main.py predict`** / **`explain`**.
 5. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
