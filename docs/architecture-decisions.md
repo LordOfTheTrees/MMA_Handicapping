@@ -279,6 +279,21 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 
 ---
 
+## ADR-24: Portable deploy JSON + harness (OctagonELO / sibling site)
+
+**Context.** The **`mma.ai`** SPA must run inference **without** shipping **`model.pkl`**, **`data/`** CSV blobs, or `src/` in the consumer image (**ADR-07** stays: local training data gitignored). A frozen Phase 3 configuration (**ADR-20**) still produces one binary **`MMAPredictor`** pickle locally; operators need a **repeatable path** from that pickle to **versioned**, **diffable** JSON the web tier can load.
+
+**Decision.**
+
+1. **Four inference artifacts** — [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) emits **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** from a trained pickle (`--as-of-date` pins the ELO/style snapshot). Schema version string **`mma-handicapping-export-v1`** on each file.
+2. **Upcoming listings** — [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) maps **`data/upcoming_cards.json`** (**ADR-23**) → **`upcoming_events.json`** for the calendar/card UI (**ADR-23** ingestion remains training-free).
+3. **Snapshot inference in this repo** — [`src/export/json_inference.py`](../src/export/json_inference.py) **`predict_proba_snapshot`**: reconstructs **point** `(6,)` probabilities from JSON **only**, with **`fight_date == as_of_date`** (JSON is a temporal **slice**, not full ELO history).
+4. **Harness** — [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py): strict **equality** pickle **`predict_proba_point_only`** vs **`predict_proba_snapshot`** after **`export_all`** to a temp dir (requires **`data/model.pkl`** or **`MMA_HARNESS_MODEL`**). [`tests/test_site_export_pages.py`](../tests/test_site_export_pages.py): **`JSON_exports/`** structural checks mapped to **`docs/website_elements.md`** page intents. Entrypoint **`python scripts/run_harness.py`** (`quick` / **`site`** / **`integration`** / full discover). Integration docs [`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md).
+
+**Consequences.** Production **truth** for point probabilities at the artifact snapshot date stays **defined by this repo** (`json_inference` + parity tests); **`mma.ai`** should match that math or deliberately document drift. Full **`PredictionResult`** (Cauchy, bootstrap intervals, hypothetical idle) stays pickle/API-side until replicated in deploy. Re-run **export** after every material **train**; run **`integration`** (+ **`site`**) before relying on **`JSON_exports/`** in git or copied to **`mma.ai/artifacts/`**.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
@@ -295,6 +310,7 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 | [`architecture.md`](architecture.md) | End-to-end modeling and pipeline design |
 | [`todo.md`](todo.md) | Phases, column specs, validation checklist |
 | [`../TODO.md`](../TODO.md) | Roadmap, next work bout, gap-report commands |
+| [`BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md) | **`mma.ai`** artifact flow + harness commands |
 | [`hyperparameter-tuning.md`](hyperparameter-tuning.md) | Walk-forward search, pristine, case studies (§9) |
 | [`validation-and-few-shot.md`](validation-and-few-shot.md) | Time holdout, grouped CV, few-shot / cold-start knobs |
 | [`elo-tuning-knobs.md`](elo-tuning-knobs.md) | What each ELO / Kalman parameter does when you change it |

@@ -279,12 +279,15 @@ Phase 3 tuning is **not** a one-shot train: you run **repeated model generations
 
 A **first full** run of the script harness (random search per **selection** year, then **pristine** 2023–2025 with the **frozen** last-year winner) has been **completed**; outputs live under **`data/phase3_eval/`** (see [`hyperparameter-tuning.md`](hyperparameter-tuning.md) and ADR-20 in [`architecture-decisions.md`](architecture-decisions.md)). Use that directory as the **reference** for any **faster** validation you run next (fewer trials, shorter year span, or baseline-only walk-forward) — compare **mean log-loss** and qualitative **winner stability**, not a single new number in isolation.
 
-**Next (operational, not a second mandatory 50-trial/yr run unless you need it):**
+**Operational status:**
 
-- **Ship refit** — Rehydrate **`frozen_winner_config`** from `phase3_report.json` into `Config` and **train** for deployment; align **`holdout_start_date`** with your real **use case** (see §3.1).
-- **Fast A/B** — `python -m src.cli.run_phase3_tuning` with **smaller** `--n-trials` or **narrower** selection block **vs** the saved `phase3_metrics.csv`, or **baseline** walk-forward without `--selection-search`, to see whether rankings are **stable** under a cheaper budget.
-- **Case studies** — See [`hyperparameter-tuning.md`](hyperparameter-tuning.md) §9: pull **worst** per-fight log-loss bouts (by weight class) from the pristine report payload for **examples and narrative** debugging.
-- **P&L / CLV (later)** — With **time-stamped** historical **odds** (e.g. **closing** or **opening** at your decision time), you can backtest **edge** and stake rules; the model’s log-loss on outcomes alone does **not** imply profitability.
+- **[x] Ship deploy model + artifacts (this repo)** — Trained **`data/model.pkl`** (operator-local; gitignored), **`frozen_winner_config`** path per **ADR-20**, **`JSON_exports/`** quartet + **`upcoming_events.json`** for **`mma.ai`**, export scripts (`scripts/export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py`). Parity harness: pickle vs JSON snapshot (**`predict_proba_point_only`** vs **`predict_proba_snapshot`** at **`as_of_date`**). Site-page structural checks vs **`docs/website_elements.md`**: **`python scripts/run_harness.py site`**. Decision log: **ADR-24** in [`architecture-decisions.md`](architecture-decisions.md). Re-export after **train** / data refresh.
+
+**Next (not a second mandatory 50-trial/yr run unless you need it) — order in [`TODO.md`](../TODO.md):**
+
+- **Case studies** — [`hyperparameter-tuning.md`](hyperparameter-tuning.md) §9: worst per-fight log-loss bouts (pristine payload) for narrative debugging.
+- **Odds / stake / ROI** — Needs reproducible historical lines; **ADR-21** (EV-based filter). Model log-loss is not profitability.
+- **Fast A/B** — `python -m src.cli.run_phase3_tuning` with smaller `--n-trials`, narrower selection, or baseline-only walk-forward **vs** saved `phase3_metrics.csv`; confirm **ranking** stability before another long wall-clock run.
 
 ---
 
