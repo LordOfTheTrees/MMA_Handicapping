@@ -19,10 +19,24 @@ from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
 from src.model.regression import N_CLASSES  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
-from tests.harness_skip import HAS_HARNESS_MODEL, harness_model_path  # noqa: E402
+from tests.harness_skip import (  # noqa: E402
+    HAS_HARNESS_MODEL,
+    harness_model_path,
+    print_harness_integration_preamble,
+)
 
 
-@unittest.skipUnless(HAS_HARNESS_MODEL, "Set MMA_HARNESS_MODEL or add tests/fixtures/parity/model.pkl")
+def setUpModule() -> None:
+    print_harness_integration_preamble(
+        module="tests.test_export_artifacts_smoke",
+        description="Smoke: export_all() writes four valid JSON inference files.",
+    )
+
+
+@unittest.skipUnless(
+    HAS_HARNESS_MODEL,
+    "No pickle for harness (stderr banner above explains MMA_HARNESS_MODEL / fixtures).",
+)
 class TestExportArtifactsSmoke(unittest.TestCase):
     def test_export_all_writes_four_valid_json_files(self) -> None:
         from datetime import date
@@ -34,6 +48,14 @@ class TestExportArtifactsSmoke(unittest.TestCase):
             d_asof = pred.fights[-1].fight_date
         else:
             d_asof = date.today()
+
+        print(
+            f"[export smoke] Loading pickle: {model_path}\n"
+            f"[export smoke] Fight rows in model: {len(pred.fights)}  export as_of_date: {d_asof.isoformat()}\n"
+            f"[export smoke] Writing temp JSON quartet + validating shapes/schema...",
+            flush=True,
+            file=sys.stderr,
+        )
 
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
@@ -53,6 +75,8 @@ class TestExportArtifactsSmoke(unittest.TestCase):
             sx = json.loads((out / "style_axes.json").read_text(encoding="utf-8"))
             self.assertEqual(elo.get("as_of_date"), d_asof.isoformat())
             self.assertEqual(sx.get("as_of_date"), d_asof.isoformat())
+
+        print("[export smoke] OK: all four JSON files valid for this pickle.", flush=True, file=sys.stderr)
 
 
 if __name__ == "__main__":
