@@ -11,7 +11,7 @@ Human-friendly test harness (wraps unittest). Run from repo root::
 Suites:
   all           Default. Every test under tests/ (unittest discover).
   quick         Offline unit tests only (no model.pkl needed).
-  site          JSON_exports/ contracts vs docs/website_elements.md pages (events, rankings, profiles, bout JSON, about).
+  site          JSON_exports/ contracts vs docs/website_elements.md pages (events, rankings, profiles, bout JSON, about, reference_distributions).
   integration   Export smoke + pickle vs JSON parity (needs model; see tests/harness_skip.py).
 
 Model resolution matches tests: **`MMA_HARNESS_MODEL`** if set and the file exists, else **`data/model.pkl`**.

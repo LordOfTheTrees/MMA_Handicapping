@@ -66,7 +66,7 @@ class TestPickleVsJsonParity(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
-            print("[parity] Exporting four JSON files to temp dir (full model state)...", flush=True, file=sys.stderr)
+            print("[parity] Exporting JSON bundle to temp dir (full model state)...", flush=True, file=sys.stderr)
             export_artifacts.export_all(predictor, out, as_of=d_asof)
 
             for i, (a_id, b_id, wc) in enumerate(triples):

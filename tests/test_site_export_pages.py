@@ -69,7 +69,7 @@ def setUpModule() -> None:
 
 
 class TestSiteExportPages(unittest.TestCase):
-    """Five page clusters; Contact / paywall UI have no training-repo JSON contract here."""
+    """Page clusters vs committed deploy JSON (``JSON_exports/``)."""
 
     export_dir: Path
 
@@ -82,12 +82,13 @@ class TestSiteExportPages(unittest.TestCase):
             "elo_states.json",
             "style_axes.json",
             "fighter_profiles.json",
+            "reference_distributions.json",
         ]
         missing = [n for n in need if not (cls.export_dir / n).is_file()]
         if missing:
             raise unittest.SkipTest(
                 f"Site export dir missing files {missing} under {cls.export_dir}. "
-                "Run export_artifacts + export_upcoming_events or set MMA_SITE_EXPORT_DIR."
+                "Run export_artifacts (includes reference_distributions.json for mma.ai) + export_upcoming_events or set MMA_SITE_EXPORT_DIR."
             )
 
     def test_01_home_upcoming_calendar(self) -> None:
@@ -208,6 +209,41 @@ class TestSiteExportPages(unittest.TestCase):
             f"[site_pages] About model (weights + training_config): OK "
             f"(features={len(FEATURE_NAMES)} classes={N_CLASSES}) "
             "ref=website_elements.md About the Model",
+            flush=True,
+            file=sys.stderr,
+        )
+
+
+    def test_06_reference_distributions_export(self) -> None:
+        """``reference_distributions.json`` — mma.ai quantile grids + optional chart histograms."""
+        from src.export.reference_distributions_export import (  # noqa: E402
+            CHART_PERCENTILE_LEVELS,
+            N_QUANTILE_POINTS,
+            QUANTILE_PERCENT_LEVELS,
+        )
+
+        p = self.export_dir / "reference_distributions.json"
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        self.assertEqual(doc.get("export_schema_version"), EXPECTED_EXPORT_SCHEMA)
+        self.assertEqual(doc.get("as_of_date"), doc["export_manifest"]["as_of_date"])
+        mf = doc["matchup_features"]
+        for fn in FEATURE_NAMES:
+            block = mf[fn]
+            self.assertEqual(block["percentile_levels"], list(QUANTILE_PERCENT_LEVELS))
+            self.assertEqual(len(block["values"]), N_QUANTILE_POINTS)
+        tf = doc["chart_histograms"]["training_features"]
+        for fn in FEATURE_NAMES:
+            tblock = tf["features"][fn]
+            hist = tblock.get("histogram")
+            self.assertIsNotNone(hist, msg=f"{fn} missing histogram")
+            self.assertEqual(len(hist["counts"]), len(hist["bin_edges"]) - 1)
+            self.assertEqual(len(tblock["percentiles"]), len(CHART_PERCENTILE_LEVELS))
+        print(
+            f"[site_pages] Reference distributions: OK "
+            f"(training_rows={tf['n_rows']} "
+            f"chart_divisions={len(doc['chart_histograms']['elo_by_division']['divisions'])} "
+            f"quantile_divisions={len(doc.get('division_elo') or {})}) "
+            "ref=mma.ai api/reference_distributions",
             flush=True,
             file=sys.stderr,
         )

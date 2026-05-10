@@ -103,7 +103,7 @@ Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO
 - Trained pickle: e.g. **`data/model.pkl`** (from `python -m src.cli.train ...` — see [Quick usage](#quick-usage)).
 - Optional: **`data/upcoming_cards.json`** — created by a full data refresh or by the upcoming scraper below.
 - Clone layout: default copy targets assume **`mma.ai`** sits **next to** this repo (same parent folder), e.g. `Personal Coding/MMA_Handicapping` and `Personal Coding/mma.ai`. Override paths with flags if yours differs.
-- **`JSON_exports/`** — recommended staging folder for the five **`*.json`** files before or after syncing to **`mma.ai`**. It is **not** listed in `.gitignore` so you **can commit** snapshots if desired (unlike **`data/`** and **`*.pkl`**).
+- **`JSON_exports/`** — recommended staging folder for the **`*.json`** artifacts before or after syncing to **`mma.ai`**. It is **not** listed in `.gitignore` so you **can commit** snapshots if desired (unlike **`data/`** and **`*.pkl`**).
 
 **Artifacts**
 
@@ -113,9 +113,30 @@ Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO
 | **`JSON_exports/elo_states.json`** | Per fighter × division ELO snapshot |
 | **`JSON_exports/style_axes.json`** | Style axes snapshot |
 | **`JSON_exports/fighter_profiles.json`** | Names, reach, stance, pedigree, … |
+| **`JSON_exports/reference_distributions.json`** | mma.ai quantile grids (`matchup_features` 0…100, `division_elo`) + optional `chart_histograms` (bin/count payloads) |
 | **`JSON_exports/upcoming_events.json`** | Scheduled cards (after `export_upcoming_events.py`) |
 
 Production loads these from **`mma.ai/artifacts/`** (same filenames). Do **not** ship **`model.pkl`** or raw CSVs to the web repo.
+
+### Weekly refresh (new fights, frozen regression **W**)
+
+After updating CSVs under **`data/`**, rebuild ELO + training-matrix-derived JSON **without** L-BFGS/bootstrap (pickle **W** unchanged):
+
+```bash
+python scripts/export_weekly.py refresh --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
+```
+
+This reloads data, runs **`build_elo`**, **`train_regression(fit_model=False)`**, writes the five JSONs, and **updates the pickle** with fresh ELO (use **`--no-save-model`** to skip writing `model.pkl`).
+
+### Full retrain (new **W** + export)
+
+Refit multinomial regression, save pickle, then export (**step 6** + same five JSONs):
+
+```bash
+python scripts/export_weekly.py retrain --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
+```
+
+Optional: **`--copy-to-mma-ai`** and **`--as-of-date YYYY-MM-DD`** on either subcommand (same semantics as **`export_artifacts.py`**).
 
 ### One-time / repeat: full manual sequence
 
@@ -132,7 +153,7 @@ python -m src.data.ufcstats_profiles --data-dir ./data
 python -m src.data.ufcstats_upcoming --data-dir ./data
 # Or use train --full-rebuild, which runs refresh_data() (fights + profiles + upcoming_cards.json).
 
-# 2) Export the four inference JSON files from your pickle
+# 2) Export the five inference JSON files from your pickle
 python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
 
 # 3) Build deploy upcoming JSON (requires data/upcoming_cards.json from step 1)

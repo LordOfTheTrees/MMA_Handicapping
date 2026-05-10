@@ -7,7 +7,9 @@ Run from repo root::
     python scripts/export_artifacts.py --model-path data/model.pkl --out-dir JSON_exports
     python scripts/export_artifacts.py ... --copy-to-mma-ai
 
-Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``, ``fighter_profiles.json``.
+Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
+``fighter_profiles.json``, and ``reference_distributions.json`` (quantile grids
+for ``mma.ai`` + optional ``chart_histograms`` bin payloads).
 """
 from __future__ import annotations
 
@@ -27,6 +29,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
+from src.export.reference_distributions_export import (  # noqa: E402
+    REFERENCE_DISTRIBUTIONS_FILENAME,
+    build_reference_distributions_document,
+)
 from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
 from src.model.regression import CLASS_LABELS, N_CLASSES  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
@@ -163,6 +169,14 @@ def _export_style_axes(predictor: MMAPredictor, as_of: date, manifest: dict[str,
     }
 
 
+def _export_reference_distributions(
+    predictor: MMAPredictor, as_of: date, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    return build_reference_distributions_document(
+        predictor, as_of, manifest, export_schema_version=EXPORT_SCHEMA_VERSION
+    )
+
+
 def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) -> dict[str, Any]:
     profs = {}
     for fid, p in predictor.profiles.items():
@@ -179,7 +193,7 @@ def export_all(
     out_dir: Path,
     *,
     as_of: Optional[date] = None,
-) -> tuple[Path, Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path, Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -198,13 +212,14 @@ def export_all(
         ("elo_states.json", _export_elo_states(predictor, as_of_d, manifest)),
         ("style_axes.json", _export_style_axes(predictor, as_of_d, manifest)),
         ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
+        (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
     ]
     written: list[Path] = []
     for name, doc in writers:
         path = out_dir / name
         path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         written.append(path)
-    return written[0], written[1], written[2], written[3]
+    return written[0], written[1], written[2], written[3], written[4]
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -238,7 +253,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     predictor = MMAPredictor.load(Path(args.model_path))
     out_dir = Path(args.out_dir)
     export_all(predictor, out_dir, as_of=as_of)
-    print(f"Wrote 4 JSON files under {out_dir.resolve()}", flush=True)
+    print(f"Wrote 5 JSON files under {out_dir.resolve()}", flush=True)
 
     if args.copy_to_mma_ai:
         _scripts = Path(__file__).resolve().parent

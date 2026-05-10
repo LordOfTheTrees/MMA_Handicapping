@@ -9,15 +9,17 @@ Usage (repo root)::
 
     python -m src.cli.chart_elo_distributions --data-dir ./data --top-n 15
 
-Default output is ``data/elo_by_division.png``. Any existing file at that path is **removed**
+Default composite chart is ``data/elo_by_division.png``. Any existing file at that path is **removed**
 before writing so ``data/`` never keeps a stale chart (copy the PNG aside first if you want
 to keep it). Override with ``--out``.
+
+Per-division PNGs default to ``data/figures/division_elo_histograms/`` (disable with
+``--no-per-division-charts``).
 """
 from __future__ import annotations
 
 import argparse
 import sys
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -26,40 +28,19 @@ import numpy as np
 from src.config import Config
 from src.data.schema import WeightClass
 from src.pipeline import MMAPredictor
+from src.stats.elo_division_population import (
+    collect_elos_by_division,
+    division_order_public,
+    fight_pairs_for_elo_charts,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _fight_pairs(predictor: MMAPredictor) -> set[tuple[str, WeightClass]]:
-    pairs: set[tuple[str, WeightClass]] = set()
-    for f in predictor.fights:
-        if f.weight_class == WeightClass.UNKNOWN:
-            continue
-        pairs.add((f.fighter_a_id, f.weight_class))
-        pairs.add((f.fighter_b_id, f.weight_class))
-    return pairs
-
-
-def _collect_elos_by_division(
-    predictor: MMAPredictor,
-    as_of: date,
-    pairs: set[tuple[str, WeightClass]],
-) -> dict[WeightClass, list[float]]:
-    """
-    One ELO sample per (fighter, division) that **actually appears in fight records**.
-
-    ``ELOModel._states`` also has pedigree-only keys (every profile x every division),
-    which would duplicate rosters and pile up 1500s — do not use that for charts.
-    """
-    by_wc: dict[WeightClass, list[float]] = defaultdict(list)
-    for fid, wc in pairs:
-        e = predictor.elo_model.get_elo(fid, wc, as_of)
-        by_wc[wc].append(float(e))
-    return by_wc
-
-
-def _division_order() -> list[WeightClass]:
-    return [wc for wc in WeightClass if wc != WeightClass.UNKNOWN]
+def _division_png_stem_clean(wc: WeightClass) -> str:
+    """File stem: ``elo_hist_Heavyweight`` style (spaces -> underscores)."""
+    safe = wc.value.replace("/", "-").replace(" ", "_")
+    return f"elo_hist_{safe}"
 
 
 def _print_top_by_division(
@@ -70,7 +51,7 @@ def _print_top_by_division(
 ) -> None:
     if top_n <= 0:
         return
-    order = _division_order()
+    order = division_order_public()
     profiles = predictor.profiles
     print(f"\nTop {top_n} by ELO per division (as_of={as_of}):", flush=True)
     for wc in order:
@@ -100,7 +81,18 @@ def main() -> int:
         "--out",
         type=Path,
         default=_REPO_ROOT / "data" / "elo_by_division.png",
-        help="PNG path (default: data/elo_by_division.png under repo root; overwrites)",
+        help="Combined grid PNG path (default: data/elo_by_division.png)",
+    )
+    ap.add_argument(
+        "--per-division-out-dir",
+        type=Path,
+        default=_REPO_ROOT / "data" / "figures" / "division_elo_histograms",
+        help="Directory for one PNG per division (default: data/figures/division_elo_histograms)",
+    )
+    ap.add_argument(
+        "--no-per-division-charts",
+        action="store_true",
+        help="Skip writing individual division histograms",
     )
     ap.add_argument("--as-of", type=str, default=None, help="YYYY-MM-DD (default: today)")
     ap.add_argument("--elo-progress-every", type=int, default=2000)
@@ -127,9 +119,9 @@ def main() -> int:
     print("Building ELO (full history) ...", flush=True)
     p.build_elo(elo_progress_every=args.elo_progress_every)
 
-    order = _division_order()
-    fight_pairs = _fight_pairs(p)
-    by_wc = _collect_elos_by_division(p, as_of, fight_pairs)
+    order = division_order_public()
+    fight_pairs = fight_pairs_for_elo_charts(p)
+    by_wc = collect_elos_by_division(p, as_of, fight_pairs)
 
     # Terminal summary
     print(f"\nELO distribution summary (as_of={as_of}, Kalman time growth applied):", flush=True)
@@ -153,7 +145,7 @@ def main() -> int:
     )
     print(f"{'division':<22} {'n':>6} {'var_mean':>10} {'var_p50':>10}", flush=True)
     print("-" * 52, flush=True)
-    var_by_wc: dict[WeightClass, list[float]] = defaultdict(list)
+    var_by_wc: dict[WeightClass, list[float]] = {wc: [] for wc in order}
     for fid, wc in fight_pairs:
         st = p.elo_model.get_state(fid, wc, as_of)
         var_by_wc[wc].append(float(st.uncertainty))
@@ -169,36 +161,68 @@ def main() -> int:
 
     _print_top_by_division(p, as_of, fight_pairs, args.top_n)
 
-    # Figure: grid of histograms
-    n_divs = len([wc for wc in order if len(by_wc.get(wc, [])) >= args.min_fighters])
-    n_cols = 3
-    n_rows = int(np.ceil(len(order) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.2 * n_cols, 3.2 * n_rows), sharex=False)
-    axes_flat = np.atleast_1d(axes).ravel()
-
     baseline = p.config.elo.initial_elo
     all_vals = [x for wc in order for x in by_wc.get(wc, [])]
     x_min = min(all_vals) - 30 if all_vals else baseline - 200
     x_max = max(all_vals) + 30 if all_vals else baseline + 200
+
+    def _draw_one_axis(ax, vals: list[float], title: str) -> None:
+        ax.hist(vals, bins=28, range=(x_min, x_max), color="steelblue", edgecolor="white", alpha=0.88)
+        ax.axvline(baseline, color="coral", linestyle="--", linewidth=1.2, label="initial 1500")
+        a = np.array(vals)
+        ax.axvline(float(np.median(a)), color="darkgreen", linestyle=":", linewidth=1.0, label="median")
+        ax.set_xlim(x_min, x_max)
+        ax.set_title(title, fontsize=10)
+        ax.set_ylabel("fighters")
+        ax.legend(loc="upper right", fontsize=7)
+        ax.grid(axis="y", alpha=0.3)
+
+    if not args.no_per_division_charts:
+        per_dir = Path(args.per_division_out_dir)
+        per_dir.mkdir(parents=True, exist_ok=True)
+        n_written = 0
+        for wc in order:
+            vals = by_wc.get(wc, [])
+            if len(vals) < args.min_fighters:
+                continue
+            fig, ax = plt.subplots(figsize=(6.0, 4.0))
+            _draw_one_axis(
+                ax,
+                vals,
+                f"{wc.value}\n"
+                f"n={len(vals)}, mean={np.mean(vals):.0f}, std={np.std(vals):.1f}",
+            )
+            fig.suptitle(
+                f"ELO distribution (as_of={as_of})",
+                fontsize=11,
+                y=1.02,
+            )
+            fig.tight_layout()
+            fp = per_dir / f"{_division_png_stem_clean(wc)}.png"
+            fig.savefig(fp, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"  division chart -> {fp.resolve()}", flush=True)
+            n_written += 1
+        print(f"\nWrote {n_written} per-division histogram(s) under {per_dir.resolve()}", flush=True)
+
+    # Figure: grid of histograms
+    n_cols = 3
+    n_rows = int(np.ceil(len(order) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4.2 * n_cols, 3.2 * n_rows), sharex=False)
+    axes_flat = np.atleast_1d(axes).ravel()
 
     for ax, wc in zip(axes_flat, order):
         vals = by_wc.get(wc, [])
         if len(vals) < args.min_fighters:
             ax.set_visible(False)
             continue
-        ax.hist(vals, bins=28, range=(x_min, x_max), color="steelblue", edgecolor="white", alpha=0.88)
-        ax.axvline(baseline, color="coral", linestyle="--", linewidth=1.2, label="initial 1500")
         a = np.array(vals)
-        ax.axvline(float(np.median(a)), color="darkgreen", linestyle=":", linewidth=1.0, label="median")
-        ax.set_xlim(x_min, x_max)
-        ax.set_title(
+        _draw_one_axis(
+            ax,
+            vals,
             f"{wc.value}\n"
             f"n={len(vals)}, mean={a.mean():.0f}, std={a.std():.1f}",
-            fontsize=10,
         )
-        ax.set_ylabel("fighters")
-        ax.legend(loc="upper right", fontsize=7)
-        ax.grid(axis="y", alpha=0.3)
 
     for ax in axes_flat[len(order) :]:
         ax.set_visible(False)

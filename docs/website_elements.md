@@ -158,6 +158,8 @@ Modeled after `2023-03-04_split_barrier.png`:
 - Documents how the model was built out, including key architectural decisions made during development
 - **Reference visualizations available** (to be embedded or linked in the ADR page):
   - `elo_by_division.png` — ELO distribution histograms across all divisions (as of 2026-04-19), showing spread and clustering per weight class
+  - `data/figures/division_elo_histograms/*.png` — One histogram per weight class (from `python -m src.cli.chart_elo_distributions`)
+  - **Precomputed chart data:** **`reference_distributions.json`** (mma.ai contract: `matchup_features` + `division_elo` quantile grids; optional nested **`chart_histograms`** for bin/count payloads) — export next to other deploy JSONs from `export_artifacts.py`
   - `histogram_all_grid.png` — Full grid of all 12 regression training features (n=6,366 bouts)
   - Individual feature histograms: `elo_differential`, `striker_score_diff`, `grappler_score_diff`, `finish_threat_diff`, `finish_vulnerability_diff`, `striking_matchup`, `grappling_matchup`, `finish_matchup`, `reach_diff_cm`, `height_diff_cm`, `stance_mismatch`, `age_diff_days`
 
@@ -208,7 +210,7 @@ Modeled after `2023-03-04_split_barrier.png`:
 
 ## Automated checks (`MMA_Handicapping` repo)
 
-Structural validation that **`JSON_exports/`** JSON aligns with **this** page inventory (home/upcoming, rankings/ELO snapshot, fighter profile fields, hypothetical/single-bout **`predict_proba_snapshot`**, about-model **`model_weights`**) runs via:
+Structural validation that **`JSON_exports/`** JSON aligns with **this** page inventory (home/upcoming, rankings/ELO snapshot, fighter profile fields, hypothetical/single-bout **`predict_proba_snapshot`**, about-model **`model_weights`**, **`reference_distributions.json`**) runs via:
 
 ```bash
 python scripts/run_harness.py site

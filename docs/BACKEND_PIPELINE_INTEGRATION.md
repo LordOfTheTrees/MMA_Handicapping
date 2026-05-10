@@ -10,7 +10,7 @@ Mirrors **`mma.ai`** `docs/BACKEND_PIPELINE_INTEGRATION.md`; keep edits in sync 
 
 Copy-paste flows from **`MMA_Handicapping` repo root**; fuller context in **[README.md](../README.md#website-export-mmaai)**.
 
-**A. Export four inference JSONs** (from **`data/model.pkl`**):
+**A. Export five inference JSONs** (from **`data/model.pkl`**):
 
 ```bash
 python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
@@ -34,7 +34,7 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 
 ## Harness (pickle vs JSON snapshot)
 
-**Purpose:** prove that the four exported inference JSONs reproduce **`MMAPredictor.predict_proba_point_only`** when evaluated at the artifacts’ snapshot date.
+**Purpose:** prove that the five exported inference JSONs reproduce **`MMAPredictor.predict_proba_point_only`** when evaluated at the artifacts’ snapshot date.
 
 **Date contract:** **`elo_states.json`** and **`style_axes.json`** store a single timeline slice: **`as_of_date`**. Snapshot inference ([`src/export/json_inference.py`](../src/export/json_inference.py)) only matches the pickle when **`fight_date == as_of_date`** for that export (same as [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) `--as-of-date`). The pickle can differ for other dates because it runs full temporal ELO/style.
 
@@ -63,7 +63,7 @@ If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle 
 
 ### Site page contracts (committed JSON vs `website_elements.md`)
 
-**`tests/test_site_export_pages.py`** checks **`JSON_exports/*.json`** (override with **`MMA_SITE_EXPORT_DIR`**) against the SPA page inventory in **`docs/website_elements.md`**: home/upcoming calendar, rankings snapshot, fighter profile keys, bout/hypothetical inference via **`predict_proba_snapshot`**, and “about model” **`model_weights`** fields. **`python scripts/run_harness.py site`**. Subscription UI and Contact have no artifact contract here.
+**`tests/test_site_export_pages.py`** checks **`JSON_exports/*.json`** (override with **`MMA_SITE_EXPORT_DIR`**) against the SPA page inventory in **`docs/website_elements.md`**: home/upcoming calendar, rankings snapshot, fighter profile keys, bout/hypothetical inference via **`predict_proba_snapshot`**, about-model **`model_weights`** fields, and **`reference_distributions.json`** (same contract as **`mma.ai`** **`api/reference_distributions.py`**). **`python scripts/run_harness.py site`**. Subscription UI and Contact have no artifact contract here.
 
 ---
 
@@ -85,7 +85,7 @@ If you cloned both repos under the same parent (e.g. `Personal Coding/`), browse
 
 | Piece | Notes |
 |-------|------|
-| **`mma.ai/api/inference.py`** | Loads four JSON files; **`predict`** / **`build_features`** / search TODO |
+| **`mma.ai/api/inference.py`** | Loads five core JSON files (weights, ELO, style, profiles, **`reference_distributions.json`**); **`predict`** / **`build_features`** / search TODO |
 | **`mma.ai/api/routes/predict.py`** | **`POST /api/predict`** → **503** until inference wired |
 | **`mma.ai/api/routes/events.py`**, **`fighters.py`** | **503** stubs |
 | **Frontend mocks** | **`mma.ai/frontend/src/data/mock/`**; TypeScript **`PredictionPayload`** matches wire subset |
@@ -101,18 +101,19 @@ Entry points:
 
 | Script | Output |
 |--------|--------|
-| **`scripts/export_artifacts.py`** | **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** (under **`--out-dir`**, typically **`JSON_exports/`**) |
+| **`scripts/export_artifacts.py`** | **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`**, **`reference_distributions.json`** (under **`--out-dir`**, typically **`JSON_exports/`**) — see **`mma.ai`** **`api/reference_distributions.py`** |
 | **`scripts/export_upcoming_events.py`** | **`upcoming_events.json`** |
 | **`scripts/copy_exports_to_mma_ai.py`** | Copies **`*.json`** into **`mma.ai/artifacts/`** |
 
 Details:
 
 1. **`model_weights.json`** — **`W`** (6×12), bootstrap draws / config for CI routing (**`ModelConfig`**, **`ci_alpha`**, bootstrap count, elo_MC / Cauchy switches per training). **`export_manifest`** includes `git_sha_training`, `exported_at`, schema version.
-2. Loads the **same** shipped **`MMAPredictor`** pickle as **`python main.py predict`** / **`explain`**.
+2. **`reference_distributions.json`** — **`matchup_features`**: 101-point empirical quantiles per regression feature (percentiles 0…100). Optional **`global_days_idle`**. **`division_elo`**: per–weight-class ELO quantiles at snapshot. Training repo may add **`chart_histograms`** (bins/counts) for static charts; **`mma.ai`** preserves these keys after validation.
 3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
-4. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
+4. Loads the **same** shipped **`MMAPredictor`** pickle as **`python main.py predict`** / **`explain`**.
+5. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
 
-**Exit:** four + upcoming JSON files from a manual or CI run; parity tests run when **`data/model.pkl`** exists **or** **`MMA_HARNESS_MODEL`** points at a file that exists.
+**Exit:** five inference JSON files plus **`upcoming_events.json`** from a manual or CI run; parity tests run when **`data/model.pkl`** exists **or** **`MMA_HARNESS_MODEL`** points at a file that exists.
 
 ---
 

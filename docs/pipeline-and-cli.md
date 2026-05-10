@@ -119,7 +119,7 @@ Implementations live under [`src/cli/`](../src/cli/). From the repo root, run wi
 | [`src/cli/plot_training_feature_histograms.py`](../src/cli/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. |
 | [`scripts/pilot_lbfgs_stopping.py`](../scripts/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
 | [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) | Phase‑2 smoke checks. |
-| [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization helpers. |
+| [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization: combined division grid (`data/elo_by_division.png`) plus per-division PNGs under `data/figures/division_elo_histograms/` by default. |
 
 ---
 
@@ -232,7 +232,7 @@ python main.py --model-path ./data/model.pkl predict-human --explain "Sean O'Mal
 
 ## 9. OctagonELO / `mma.ai` JSON export (offline)
 
-The deploy repo loads **five JSON files** from **`mma.ai/artifacts/`** (no pickles, no `data/` CSV blobs). Human-run steps and flags are documented in **[README.md](../README.md#website-export-mmaai)**.
+The deploy repo loads **six JSON files** from **`mma.ai/artifacts/`** (no pickles, no `data/` CSV blobs). Human-run steps and flags are documented in **[README.md](../README.md#website-export-mmaai)**.
 
 | Script | Role |
 |--------|------|

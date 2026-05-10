@@ -62,6 +62,7 @@ mma-predictions-web/
 | `elo_states.json` | `{fighter_id: {weight_class: {elo, uncertainty, last_fight_date, n_fights}}}` | ~2 MB |
 | `style_axes.json` | `{fighter_id: {weight_class: {striker_score, grappler_score, finish_threat, finish_vulnerability}}}` | ~2 MB |
 | `fighter_profiles.json` | `{fighter_id: {name, reach_cm, height_cm, dob, stance}}` | ~1 MB |
+| `reference_distributions.json` | **`matchup_features`** (101-point quantiles per feature), **`division_elo`**, optional **`global_days_idle`**; optional **`chart_histograms`** for SPA | ~150–800 KB |
 
 No pipeline code, no training data, no scraping logic — only the learned numeric state.
 
@@ -71,7 +72,7 @@ No pipeline code, no training data, no scraping logic — only the learned numer
 
 `api/inference.py` (~150 lines, `numpy` + `scipy` + `rapidfuzz` only):
 
-1. Load 4 JSON artifacts at startup (cached in memory)
+1. Load core JSON artifacts at startup (cached in memory): weights, ELO, style, profiles, and **`reference_distributions.json`** (quantile grids + optional chart histograms)
 2. `fuzzy_search(query)` → ranked fighter list
 3. `build_matchup_features(a_id, b_id, weight_class, date)` → 12-element vector
 4. `predict(features)` → softmax(W @ x) → 6-class probabilities

@@ -281,7 +281,7 @@ A **first full** run of the script harness (random search per **selection** year
 
 **Operational status:**
 
-- **[x] Ship deploy model + artifacts (this repo)** — Trained **`data/model.pkl`** (operator-local; gitignored), **`frozen_winner_config`** path per **ADR-20**, **`JSON_exports/`** quartet + **`upcoming_events.json`** for **`mma.ai`**, export scripts (`scripts/export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py`). Parity harness: pickle vs JSON snapshot (**`predict_proba_point_only`** vs **`predict_proba_snapshot`** at **`as_of_date`**). Site-page structural checks vs **`docs/website_elements.md`**: **`python scripts/run_harness.py site`**. Decision log: **ADR-24** in [`architecture-decisions.md`](architecture-decisions.md). Re-export after **train** / data refresh.
+- **[x] Ship deploy model + artifacts (this repo)** — Trained **`data/model.pkl`** (operator-local; gitignored), **`frozen_winner_config`** path per **ADR-20**, **`JSON_exports/`** inference bundle + **`upcoming_events.json`** for **`mma.ai`**, export scripts (`scripts/export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py`). Parity harness: pickle vs JSON snapshot (**`predict_proba_point_only`** vs **`predict_proba_snapshot`** at **`as_of_date`**). Site-page structural checks vs **`docs/website_elements.md`**: **`python scripts/run_harness.py site`**. Decision log: **ADR-24** in [`architecture-decisions.md`](architecture-decisions.md). Re-export after **train** / data refresh.
 
 **Next (not a second mandatory 50-trial/yr run unless you need it) — order in [`TODO.md`](../TODO.md):**
 
