@@ -17,6 +17,7 @@ from src.pipeline import MMAPredictor  # noqa: E402
 
 from tests.harness_skip import (  # noqa: E402
     HAS_HARNESS_MODEL,
+    HARNESS_SKIP_REASON,
     harness_model_path,
     print_harness_integration_preamble,
 )
@@ -33,10 +34,7 @@ def setUpModule() -> None:
     )
 
 
-@unittest.skipUnless(
-    HAS_HARNESS_MODEL,
-    "No pickle for harness (see stderr banner: data/model.pkl, MMA_HARNESS_MODEL, fixture).",
-)
+@unittest.skipUnless(HAS_HARNESS_MODEL, HARNESS_SKIP_REASON)
 class TestPickleVsJsonParity(unittest.TestCase):
     def test_exported_bundle_matches_predict_proba_point_only(self) -> None:
         from datetime import date

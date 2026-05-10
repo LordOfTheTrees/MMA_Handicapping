@@ -44,6 +44,33 @@ def harness_model_path() -> Path | None:
 HAS_HARNESS_MODEL = harness_model_path() is not None
 
 
+def _harness_miss_detail_parts() -> list[str]:
+    """Facts for unittest skipReason / banners when no pickle is resolved."""
+    parts: list[str] = []
+    raw = harness_env_raw()
+    if raw:
+        expanded = Path(raw).expanduser().resolve()
+        parts.append(f"env={raw!r} ->{_display_path(expanded)} exists={expanded.is_file()}")
+    else:
+        parts.append("env unset")
+
+    dd = _DEFAULT_DATA_PKL.resolve()
+    fx = _FIXTURE_PKL.resolve()
+    parts.append(f"default data/model.pkl {_display_path(dd)} exists={dd.is_file()}")
+    parts.append(f"fixture tests/fixtures/parity/model.pkl {_display_path(fx)} exists={fx.is_file()}")
+    return parts
+
+
+# Shown verbatim on unittest's 'skipped …' line — do not rely on stderr ordering alone.
+HARNESS_SKIP_REASON = (
+    "No model.pkl resolved (checks: "
+    + " ; ".join(_harness_miss_detail_parts())
+    + "). Train to data/model.pkl or set MMA_HARNESS_MODEL=<path>; stderr has full MMA_HARNESS_INTEGRATION banner."
+    if not HAS_HARNESS_MODEL
+    else "OK: model pickle resolved (never shown as skip reason)"
+)
+
+
 def print_harness_integration_preamble(*, module: str, description: str) -> None:
     """
     Human-oriented banner for parity / export integration tests.

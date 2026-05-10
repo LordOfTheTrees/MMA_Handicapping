@@ -54,7 +54,7 @@ python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events
 python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
 ```
 
-**Console output:** Loading [`tests.test_export_artifacts_smoke`](../tests/test_export_artifacts_smoke.py) or [`tests.test_artifact_parity`](../tests/test_artifact_parity.py) prints a **stderr** banner from [`tests/harness_skip.py`](../tests/harness_skip.py) (`print_harness_integration_preamble`): env override **`MMA_HARNESS_MODEL`**, default **`data/model.pkl`**, fixture path, which one was chosen, **RUN vs SKIP**. Parity mode also prints per-subtest lines (`[parity] Subtest ...`, `OK: ...`) and smoke prints `[export smoke] ...`. This is intentional for human assurance; some IDEs label stderr as warnings even when the run is successful.
+**Console output:** The unittest **`skipped '…'`** line for parity/smoke now embeds **`HARNESS_SKIP_REASON`** (`tests.harness_skip`): env path, **`data/model.pkl`**, **`tests/fixtures/parity/model.pkl`**, each with **`exists=`** so skip is obvious without digging for stderr banners. Loading those modules still prints the long **stderr** banner (`print_harness_integration_preamble`).
 
 If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle vs JSON values and **max_abs_delta** (treat as exporter/loader drift until fixed).
 
