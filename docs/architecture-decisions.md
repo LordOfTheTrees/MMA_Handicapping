@@ -140,7 +140,7 @@ Some entries consolidate a longer **implementation thread** (failed-entry loggin
 
 **Context.** The scrapers expose rich CLIs: **`--max-events`**, **`--max-fights`**, **`--failed-entries`**, **`--sleep`**, profile **`--max-fighters`**, etc.
 
-**Decision.** [`refresh_data`](../src/data/refresh.py) only calls **`scrape_ufcstats_fights_to_csv`** and **`scrape_fighter_profiles_to_csv`** with default paths—**no argument forwarding**. **`main.py train --full-rebuild`** therefore means “full default refresh,” not “cap/smoke refresh.” For capped or custom runs, invoke **`python -m src.data.ufcstats_scraper`** and **`python -m src.data.ufcstats_profiles`** directly (or extend `refresh_data` later with an explicit API).
+**Decision.** [`refresh_data`](../src/data/refresh.py) calls **`scrape_ufcstats_fights_to_csv`**, **`scrape_fighter_profiles_to_csv`**, and **[`scrape_upcoming_cards_to_path`](../src/data/ufcstats_upcoming.py)** ( **`upcoming_cards.json`** — see **ADR-23**) — all with **fixed default paths**, **no argument forwarding**. **`main.py train --full-rebuild`** therefore means “full default refresh,” not “cap/smoke refresh.” For capped or custom runs, invoke **`python -m src.data.ufcstats_scraper`**, **`python -m src.data.ufcstats_profiles`**, or **`python -m src.data.ufcstats_upcoming`** directly (or extend `refresh_data` later with an explicit API).
 
 **Consequences.** Operators should not expect **`--full-rebuild`** to honor ad-hoc scrape limits without code changes.
 
@@ -266,6 +266,16 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 **Context.** PNGs emitted by **`python -m src.cli.plot_prediction_three_viz`** (stacked bar + total-win badge + marginal-CI strips) are for quick reading; fractional percents on the badge (e.g. “96.5%”) cluttered the focal **total win** line.
 
 **Decision.** Percent **numerals** in that figure are **integers 0–100** (nearest whole percent via `round` on fractional masses; probabilities clamped into `[0, 1]` where appropriate). Whiskers `[lo, hi]` use integer endpoints. This applies to **exported figure copy only**: terminal **`predict`** / **`main.py`** may still display more decimal places where useful.
+
+---
+
+## ADR-23: Upcoming card JSON is site-only — out of scope for training
+
+**Context.** **ADR-05** keeps **today and future** completed-index events **out** of the historical fights CSV so half-finished cards do not corrupt training rows. The product website still needs **scheduled** bout listings.
+
+**Decision.** Maintain a **separate** ingestion path **[`src/data/ufcstats_upcoming.py`](../src/data/ufcstats_upcoming.py)** that reads **http://ufcstats.com/statistics/events/upcoming** and writes **`data/upcoming_cards.json`** (under the same **`/data/`** gitignore). Parsing uses **event-page bout rows only** — **not** **`parse_fight_page`**, which requires finished-fight totals. **`MMAPredictor.load_data`** and **`train_regression`** must **never** read this file; training continues to consume **Tier-1 CSVs only** (`ufcstats_fights.csv`, etc.). Deploy artifacts use **`scripts/export_upcoming_events.py`**.
+
+**Consequences.** One **`--full-rebuild`** refresh updates **both** historical CSVs **and** upcoming listings, but **only** CSV-backed fights feed ELO/regression. Upcoming scrape breakage does not imply training breakage, and vice versa.
 
 ---
 

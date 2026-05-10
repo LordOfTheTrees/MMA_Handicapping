@@ -1,6 +1,6 @@
 # Pipeline and CLI reference
 
-This document describes how to invoke the **CLI** (`main.py`, **`python -m src.cli.train`**, and other **`python -m src.cli.*`** modules), the **programmatic** [`MMAPredictor`](../src/pipeline.py) API, and related **arguments**. For architecture and design, see [`architecture.md`](architecture.md). Tunables live in [`src/config.py`](../src/config.py).
+This document describes how to invoke the **CLI** (`main.py`, **`python -m src.cli.train`**, and other **`python -m src.cli.*`** modules), the **programmatic** [`MMAPredictor`](../src/pipeline.py) API, and related **arguments**. **JSON export for the `mma.ai` site** is summarized in **[§9](#9-octagonelo--mmaai-json-export-offline)**; step-by-step copy-paste lives in **`README.md`**. For architecture and design, see [`architecture.md`](architecture.md). Tunables live in [`src/config.py`](../src/config.py).
 
 ---
 
@@ -228,3 +228,16 @@ python main.py --model-path ./data/model.pkl explain <id_a> <id_b> lightweight -
 # Names (interactive)
 python main.py --model-path ./data/model.pkl predict-human --explain "Sean O'Malley" "Petr Yan"
 ```
+---
+
+## 9. OctagonELO / `mma.ai` JSON export (offline)
+
+The deploy repo loads **five JSON files** from **`mma.ai/artifacts/`** (no pickles, no `data/` CSV blobs). Human-run steps and flags are documented in **[README.md](../README.md#website-export-mmaai)**.
+
+| Script | Role |
+|--------|------|
+| [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json` |
+| [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) | `data/upcoming_cards.json` to `upcoming_events.json` |
+| [`scripts/copy_exports_to_mma_ai.py`](../scripts/copy_exports_to_mma_ai.py) | Copy folder of `*.json` into sibling `mma.ai/artifacts` |
+
+Populate **`data/upcoming_cards.json`** with **`python -m src.data.ufcstats_upcoming --data-dir ./data`** or via **`refresh_data()`** (**`train --full-rebuild`**). Checklist vs **`mma.ai`**: **`docs/BACKEND_PIPELINE_INTEGRATION.md`**.

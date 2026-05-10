@@ -1,0 +1,665 @@
+{
+  "export_manifest": {
+    "export_schema_version": "mma-handicapping-upcoming-v1",
+    "exported_at": "2026-05-10T11:59:45Z",
+    "git_sha_training_repo": "d915a86856ea6931be9a0e1bb04a1fe148e7d0ea",
+    "source_upstream_scraped_at": "2026-05-10T11:59:45Z",
+    "source_upstream_schema": 1
+  },
+  "export_schema_version": "mma-handicapping-upcoming-v1",
+  "events": [
+    {
+      "event_id": "73abb7a5c57fb443",
+      "event_title": "UFC Fight Night: Allen vs. Costa",
+      "event_date": "2026-05-16",
+      "event_url": "http://ufcstats.com/event-details/73abb7a5c57fb443",
+      "location": "Las Vegas, Nevada, USA",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "e4aa608124896794",
+          "fight_url": "http://ufcstats.com/fight-details/e4aa608124896794",
+          "fighter_a_id": "040a74bb0a465c54",
+          "fighter_b_id": "20bccc9bb4ceb23e",
+          "fighter_a_name": "Arnold Allen",
+          "fighter_b_name": "Melquizael Costa",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "fc1266e2892ed111",
+          "fight_url": "http://ufcstats.com/fight-details/fc1266e2892ed111",
+          "fighter_a_id": "e93b04e308913c2e",
+          "fighter_b_id": "b67d6bacc68d4c92",
+          "fighter_a_name": "Dooho Choi",
+          "fighter_b_name": "Daniel Santos",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 2,
+          "fight_id": "ecb7ff543dd41bf8",
+          "fight_url": "http://ufcstats.com/fight-details/ecb7ff543dd41bf8",
+          "fighter_a_id": "2e45d08b3f2f02c8",
+          "fighter_b_id": "74939a16c7b56f33",
+          "fighter_a_name": "Malcolm Wellmaker",
+          "fighter_b_name": "Juan Diaz",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 3,
+          "fight_id": "47b37ff5458e7ee6",
+          "fight_url": "http://ufcstats.com/fight-details/47b37ff5458e7ee6",
+          "fighter_a_id": "476fe566d2df676e",
+          "fighter_b_id": "69898645d600abdb",
+          "fighter_a_name": "Modestas Bukauskas",
+          "fighter_b_name": "Rodolfo Bellato",
+          "weight_class": "light_heavyweight",
+          "weight_class_raw": "Light Heavyweight"
+        },
+        {
+          "bout_order": 4,
+          "fight_id": "a6ec8573a9d38c51",
+          "fight_url": "http://ufcstats.com/fight-details/a6ec8573a9d38c51",
+          "fighter_a_id": "0e46690e55a8df75",
+          "fighter_b_id": "b6c37948cb226e8c",
+          "fighter_a_name": "Timmy Cuamba",
+          "fighter_b_name": "Benardo Sopaj",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 5,
+          "fight_id": "49f678f962fe4b70",
+          "fight_url": "http://ufcstats.com/fight-details/49f678f962fe4b70",
+          "fighter_a_id": "d66a46de8d705353",
+          "fighter_b_id": "9d19d9e4aa2662e8",
+          "fighter_a_name": "Jeremiah Wells",
+          "fighter_b_name": "Nicolas Dalby",
+          "weight_class": "welterweight",
+          "weight_class_raw": "Welterweight"
+        },
+        {
+          "bout_order": 6,
+          "fight_id": "6242cda790f2085d",
+          "fight_url": "http://ufcstats.com/fight-details/6242cda790f2085d",
+          "fighter_a_id": "3e8118c1ab52f211",
+          "fighter_b_id": "64ad3e3b0efa30bb",
+          "fighter_a_name": "Tuco Tokkos",
+          "fighter_b_name": "Ivan Erslan",
+          "weight_class": "light_heavyweight",
+          "weight_class_raw": "Light Heavyweight"
+        },
+        {
+          "bout_order": 7,
+          "fight_id": "922c7c9f969a6d95",
+          "fight_url": "http://ufcstats.com/fight-details/922c7c9f969a6d95",
+          "fighter_a_id": "cfc3e7bb44685289",
+          "fighter_b_id": "de83f920fd302871",
+          "fighter_a_name": "Trey Ogden",
+          "fighter_b_name": "Tommy Gantt",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        },
+        {
+          "bout_order": 8,
+          "fight_id": "5f7111b982bcf6e3",
+          "fight_url": "http://ufcstats.com/fight-details/5f7111b982bcf6e3",
+          "fighter_a_id": "b9706f80d005036c",
+          "fighter_b_id": "e3964ece586e0635",
+          "fighter_a_name": "Ketlen Vieira",
+          "fighter_b_name": "Jacqueline Cavalcanti",
+          "weight_class": "w_bantamweight",
+          "weight_class_raw": "Women's Bantamweight"
+        },
+        {
+          "bout_order": 9,
+          "fight_id": "48cb604345f11766",
+          "fight_url": "http://ufcstats.com/fight-details/48cb604345f11766",
+          "fighter_a_id": "f14f644d41ade29f",
+          "fighter_b_id": "5f61780fe5e9b6d0",
+          "fighter_a_name": "Cody Brundage",
+          "fighter_b_name": "Andre Petroski",
+          "weight_class": "middleweight",
+          "weight_class_raw": "Middleweight"
+        },
+        {
+          "bout_order": 10,
+          "fight_id": "b98ead4eff6bf872",
+          "fight_url": "http://ufcstats.com/fight-details/b98ead4eff6bf872",
+          "fighter_a_id": "87f8699fdcc2c404",
+          "fighter_b_id": "9673a497a9da119a",
+          "fighter_a_name": "Alice Ardelean",
+          "fighter_b_name": "Polyana Viana",
+          "weight_class": "w_strawweight",
+          "weight_class_raw": "Women's Strawweight"
+        },
+        {
+          "bout_order": 11,
+          "fight_id": "b482d4452e4d0eee",
+          "fight_url": "http://ufcstats.com/fight-details/b482d4452e4d0eee",
+          "fighter_a_id": "e8fe9c15d348e778",
+          "fighter_b_id": "29162be25ebef5f0",
+          "fighter_a_name": "Daniel Barez",
+          "fighter_b_name": "Luis Gurule",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 12,
+          "fight_id": "39417b7d07c2fd83",
+          "fight_url": "http://ufcstats.com/fight-details/39417b7d07c2fd83",
+          "fighter_a_id": "9c442aaf149ea982",
+          "fighter_b_id": "fc0a4053eb8a3a59",
+          "fighter_a_name": "Shauna Bannon",
+          "fighter_b_name": "Nicolle Caliari",
+          "weight_class": "w_strawweight",
+          "weight_class_raw": "Women's Strawweight"
+        }
+      ]
+    },
+    {
+      "event_id": "1e75e6c9de99fa76",
+      "event_title": "UFC Fight Night: Song vs. Figueiredo",
+      "event_date": "2026-05-30",
+      "event_url": "http://ufcstats.com/event-details/1e75e6c9de99fa76",
+      "location": "Macau, China",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "423f32dd018ac218",
+          "fight_url": "http://ufcstats.com/fight-details/423f32dd018ac218",
+          "fighter_a_id": "efb96bf3e9ada36f",
+          "fighter_b_id": "aa72b0f831d0bfe5",
+          "fighter_a_name": "Song Yadong",
+          "fighter_b_name": "Deiveson Figueiredo",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "a23d84f15207e459",
+          "fight_url": "http://ufcstats.com/fight-details/a23d84f15207e459",
+          "fighter_a_id": "8a65fd9ba31fd3f7",
+          "fighter_b_id": "a495f599e787614f",
+          "fighter_a_name": "Zhang Mingyang",
+          "fighter_b_name": "Alonzo Menifield",
+          "weight_class": "light_heavyweight",
+          "weight_class_raw": "Light Heavyweight"
+        },
+        {
+          "bout_order": 2,
+          "fight_id": "f74e4afdf6ae29d1",
+          "fight_url": "http://ufcstats.com/fight-details/f74e4afdf6ae29d1",
+          "fighter_a_id": "f14cf73e51b29254",
+          "fighter_b_id": "17923f676f100e16",
+          "fighter_a_name": "Sergei Pavlovich",
+          "fighter_b_name": "Tallison Teixeira",
+          "weight_class": "heavyweight",
+          "weight_class_raw": "Heavyweight"
+        },
+        {
+          "bout_order": 3,
+          "fight_id": "00959e29e4a10e26",
+          "fight_url": "http://ufcstats.com/fight-details/00959e29e4a10e26",
+          "fighter_a_id": "d33da8a3d82bdb62",
+          "fighter_b_id": "5c84f673b7bb7c15",
+          "fighter_a_name": "Kai Asakura",
+          "fighter_b_name": "Cameron Smotherman",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 4,
+          "fight_id": "7e8749cbf32ef1f8",
+          "fight_url": "http://ufcstats.com/fight-details/7e8749cbf32ef1f8",
+          "fighter_a_id": "ab2b4ff41d6ebe0f",
+          "fighter_b_id": "3cf18e01cb6cbde3",
+          "fighter_a_name": "Alex Perez",
+          "fighter_b_name": "Sumudaerji",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 5,
+          "fight_id": "b007aa53eadea847",
+          "fight_url": "http://ufcstats.com/fight-details/b007aa53eadea847",
+          "fighter_a_id": "447f9858ae78f921",
+          "fighter_b_id": "a845f0735bc67405",
+          "fighter_a_name": "Muslim Salikhov",
+          "fighter_b_name": "Jake Matthews",
+          "weight_class": "welterweight",
+          "weight_class_raw": "Welterweight"
+        },
+        {
+          "bout_order": 6,
+          "fight_id": "f6d09973de0f83e7",
+          "fight_url": "http://ufcstats.com/fight-details/f6d09973de0f83e7",
+          "fighter_a_id": "e6666480a830f764",
+          "fighter_b_id": "33a86e839ad202d8",
+          "fighter_a_name": "Yi Sak Lee",
+          "fighter_b_name": "Luis Felipe Dias",
+          "weight_class": "middleweight",
+          "weight_class_raw": "Middleweight"
+        },
+        {
+          "bout_order": 7,
+          "fight_id": "3bc0190fb17ba42f",
+          "fight_url": "http://ufcstats.com/fight-details/3bc0190fb17ba42f",
+          "fighter_a_id": "7d420039bbfe7c1a",
+          "fighter_b_id": "8e6654e9f0461b8f",
+          "fighter_a_name": "Aoriqileng",
+          "fighter_b_name": "Cody Haddon",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 8,
+          "fight_id": "a3d176f12b1f0b86",
+          "fight_url": "http://ufcstats.com/fight-details/a3d176f12b1f0b86",
+          "fighter_a_id": "2f43a3e82661fa99",
+          "fighter_b_id": "c051c2e12d692b8a",
+          "fighter_a_name": "Rei Tsuruya",
+          "fighter_b_name": "Jesus Aguilar",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 9,
+          "fight_id": "3f719885c9916e06",
+          "fight_url": "http://ufcstats.com/fight-details/3f719885c9916e06",
+          "fighter_a_id": "f0feeb2192937424",
+          "fighter_b_id": "2cdb479a0ef0ee1d",
+          "fighter_a_name": "Angela Hill",
+          "fighter_b_name": "Xiong Jingnan",
+          "weight_class": "w_strawweight",
+          "weight_class_raw": "Women's Strawweight"
+        },
+        {
+          "bout_order": 10,
+          "fight_id": "370ff29489150560",
+          "fight_url": "http://ufcstats.com/fight-details/370ff29489150560",
+          "fighter_a_id": "4e30e4250cb08b61",
+          "fighter_b_id": "bc7d1ad49fcb2d08",
+          "fighter_a_name": "Loma Lookboonmee",
+          "fighter_b_name": "Jaqueline Amorim",
+          "weight_class": "w_strawweight",
+          "weight_class_raw": "Women's Strawweight"
+        },
+        {
+          "bout_order": 11,
+          "fight_id": "b6829142f42a75dc",
+          "fight_url": "http://ufcstats.com/fight-details/b6829142f42a75dc",
+          "fighter_a_id": "6f4ec5aa3eced219",
+          "fighter_b_id": "c5ccd878231c5407",
+          "fighter_a_name": "Zhu Kangjie",
+          "fighter_b_name": "Ramon Taveras",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 12,
+          "fight_id": "bc0b3c16246e0d1d",
+          "fight_url": "http://ufcstats.com/fight-details/bc0b3c16246e0d1d",
+          "fighter_a_id": "e0664abaa023fd6f",
+          "fighter_b_id": "20a0e4cc5227c117",
+          "fighter_a_name": "Ding Meng",
+          "fighter_b_name": "Jose Henrique",
+          "weight_class": "welterweight",
+          "weight_class_raw": "Welterweight"
+        }
+      ]
+    },
+    {
+      "event_id": "ba17afef01ed78b6",
+      "event_title": "UFC Fight Night: Muhammad vs. Bonfim",
+      "event_date": "2026-06-06",
+      "event_url": "http://ufcstats.com/event-details/ba17afef01ed78b6",
+      "location": "Las Vegas, Nevada, USA",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "5c69b019e6deee41",
+          "fight_url": "http://ufcstats.com/fight-details/5c69b019e6deee41",
+          "fighter_a_id": "b1b0729d27936f2f",
+          "fighter_b_id": "01641ba5df0c69b0",
+          "fighter_a_name": "Belal Muhammad",
+          "fighter_b_name": "Gabriel Bonfim",
+          "weight_class": "welterweight",
+          "weight_class_raw": "Welterweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "ea29552e2b3ebd77",
+          "fight_url": "http://ufcstats.com/fight-details/ea29552e2b3ebd77",
+          "fighter_a_id": "1c23ec2f1b71be40",
+          "fighter_b_id": "07a74004d964c7f4",
+          "fighter_a_name": "Iwo Baraniewski",
+          "fighter_b_name": "Billy Elekana",
+          "weight_class": "light_heavyweight",
+          "weight_class_raw": "Light Heavyweight"
+        },
+        {
+          "bout_order": 2,
+          "fight_id": "4e0c4f4c050e8f08",
+          "fight_url": "http://ufcstats.com/fight-details/4e0c4f4c050e8f08",
+          "fighter_a_id": "6e8349a0a0476d60",
+          "fighter_b_id": "67c1d46f4ed16f9e",
+          "fighter_a_name": "Imanol Rodriguez",
+          "fighter_b_name": "Matt Schnell",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 3,
+          "fight_id": "20d74ed23d3e9b3a",
+          "fight_url": "http://ufcstats.com/fight-details/20d74ed23d3e9b3a",
+          "fighter_a_id": "294aa73dbf37d281",
+          "fighter_b_id": "5ef94841c4bc3f86",
+          "fighter_a_name": "Bruno Silva",
+          "fighter_b_name": "Edgar Chairez",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 4,
+          "fight_id": "a6b211d8dab5edec",
+          "fight_url": "http://ufcstats.com/fight-details/a6b211d8dab5edec",
+          "fighter_a_id": "8061a3136026a673",
+          "fighter_b_id": "c3d2b9bcb4cead6b",
+          "fighter_a_name": "Jeisla Chaves",
+          "fighter_b_name": "Yuneisy Duben",
+          "weight_class": "w_flyweight",
+          "weight_class_raw": "Women's Flyweight"
+        },
+        {
+          "bout_order": 5,
+          "fight_id": "419fff06f338f5c6",
+          "fight_url": "http://ufcstats.com/fight-details/419fff06f338f5c6",
+          "fighter_a_id": "2f181c0467965b98",
+          "fighter_b_id": "4144798612ef96e5",
+          "fighter_a_name": "Brendan Allen",
+          "fighter_b_name": "Edmen Shahbazyan",
+          "weight_class": "middleweight",
+          "weight_class_raw": "Middleweight"
+        },
+        {
+          "bout_order": 6,
+          "fight_id": "752df0d5fbaeab50",
+          "fight_url": "http://ufcstats.com/fight-details/752df0d5fbaeab50",
+          "fighter_a_id": "d9c6f19f958643e9",
+          "fighter_b_id": "eb8d8c2a95cfccb8",
+          "fighter_a_name": "Bryce Mitchell",
+          "fighter_b_name": "Victor Henry",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 7,
+          "fight_id": "e7b087c972fd1c7b",
+          "fight_url": "http://ufcstats.com/fight-details/e7b087c972fd1c7b",
+          "fighter_a_id": "c0ac37a4a1133da9",
+          "fighter_b_id": "6902fcf0610dd303",
+          "fighter_a_name": "Marcus McGhee",
+          "fighter_b_name": "Jakub Wiklacz",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 8,
+          "fight_id": "44cfbb8c3c356c65",
+          "fight_url": "http://ufcstats.com/fight-details/44cfbb8c3c356c65",
+          "fighter_a_id": "ac026518a9b4dc0f",
+          "fighter_b_id": "791c8437b341fba5",
+          "fighter_a_name": "Jordan Leavitt",
+          "fighter_b_name": "Joanderson Brito",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 9,
+          "fight_id": "58ffa2dac4f2e7d0",
+          "fight_url": "http://ufcstats.com/fight-details/58ffa2dac4f2e7d0",
+          "fighter_a_id": "1e4f273069fb9e85",
+          "fighter_b_id": "6c3b2525436cf5d4",
+          "fighter_a_name": "Fares Ziam",
+          "fighter_b_name": "Tom Nolan",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        },
+        {
+          "bout_order": 10,
+          "fight_id": "b0474597b2c60482",
+          "fight_url": "http://ufcstats.com/fight-details/b0474597b2c60482",
+          "fighter_a_id": "8bd4200561c77a62",
+          "fighter_b_id": "c0d5c0c95c59050b",
+          "fighter_a_name": "Ketlen Souza",
+          "fighter_b_name": "Ariane Carnelossi",
+          "weight_class": "w_strawweight",
+          "weight_class_raw": "Women's Strawweight"
+        },
+        {
+          "bout_order": 11,
+          "fight_id": "98e77712f99956ff",
+          "fight_url": "http://ufcstats.com/fight-details/98e77712f99956ff",
+          "fighter_a_id": "b1e5bcaad32a3cac",
+          "fighter_b_id": "af9efbfd63d39734",
+          "fighter_a_name": "Priscila Cachoeira",
+          "fighter_b_name": "Chelsea Chandler",
+          "weight_class": "w_bantamweight",
+          "weight_class_raw": "Women's Bantamweight"
+        }
+      ]
+    },
+    {
+      "event_id": "48544433372ecfa6",
+      "event_title": "UFC Freedom 250",
+      "event_date": "2026-06-14",
+      "event_url": "http://ufcstats.com/event-details/48544433372ecfa6",
+      "location": "Washington, DC, USA",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "7208e40818401e88",
+          "fight_url": "http://ufcstats.com/fight-details/7208e40818401e88",
+          "fighter_a_id": "54f64b5e283b0ce7",
+          "fighter_b_id": "9e8f6c728eb01124",
+          "fighter_a_name": "Ilia Topuria",
+          "fighter_b_name": "Justin Gaethje",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "5727d5be8c373346",
+          "fight_url": "http://ufcstats.com/fight-details/5727d5be8c373346",
+          "fighter_a_id": "e5549c82bfb5582d",
+          "fighter_b_id": "787bb1f087ccff8a",
+          "fighter_a_name": "Alex Pereira",
+          "fighter_b_name": "Ciryl Gane",
+          "weight_class": "heavyweight",
+          "weight_class_raw": "Heavyweight"
+        },
+        {
+          "bout_order": 2,
+          "fight_id": "60de0423ae6ed097",
+          "fight_url": "http://ufcstats.com/fight-details/60de0423ae6ed097",
+          "fighter_a_id": "b50a426a33da0012",
+          "fighter_b_id": "24656ef4d605c96f",
+          "fighter_a_name": "Sean O'Malley",
+          "fighter_b_name": "Aiemann Zahabi",
+          "weight_class": "bantamweight",
+          "weight_class_raw": "Bantamweight"
+        },
+        {
+          "bout_order": 3,
+          "fight_id": "9a9b30b3165b62e4",
+          "fight_url": "http://ufcstats.com/fight-details/9a9b30b3165b62e4",
+          "fighter_a_id": "9c393e836a852f30",
+          "fighter_b_id": "4b93a88f3b1de35b",
+          "fighter_a_name": "Mauricio Ruffy",
+          "fighter_b_name": "Michael Chandler",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        },
+        {
+          "bout_order": 4,
+          "fight_id": "00e8d4b961a65d21",
+          "fight_url": "http://ufcstats.com/fight-details/00e8d4b961a65d21",
+          "fighter_a_id": "35673bf5204524ee",
+          "fighter_b_id": "d6c0cdd7e467c440",
+          "fighter_a_name": "Bo Nickal",
+          "fighter_b_name": "Kyle Daukaus",
+          "weight_class": "middleweight",
+          "weight_class_raw": "Middleweight"
+        },
+        {
+          "bout_order": 5,
+          "fight_id": "127ba4a1ccb3d4a6",
+          "fight_url": "http://ufcstats.com/fight-details/127ba4a1ccb3d4a6",
+          "fighter_a_id": "f166e93d04a8c274",
+          "fighter_b_id": "97cf1a2c7c5e7889",
+          "fighter_a_name": "Diego Lopes",
+          "fighter_b_name": "Steve Garcia",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 6,
+          "fight_id": "30cdb851f6c63444",
+          "fight_url": "http://ufcstats.com/fight-details/30cdb851f6c63444",
+          "fighter_a_id": "955da1675ad58a50",
+          "fighter_b_id": "d3df1add9d9a7efb",
+          "fighter_a_name": "Josh Hokit",
+          "fighter_b_name": "Derrick Lewis",
+          "weight_class": "heavyweight",
+          "weight_class_raw": "Heavyweight"
+        }
+      ]
+    },
+    {
+      "event_id": "c8661e204c66f325",
+      "event_title": "UFC Fight Night: Kape vs. Horiguchi",
+      "event_date": "2026-06-20",
+      "event_url": "http://ufcstats.com/event-details/c8661e204c66f325",
+      "location": "Las Vegas, Nevada, USA",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "33afdd7ad43a2756",
+          "fight_url": "http://ufcstats.com/fight-details/33afdd7ad43a2756",
+          "fighter_a_id": "5d1b7e3dd9e11074",
+          "fighter_b_id": "98aa60cf58071fd6",
+          "fighter_a_name": "Manel Kape",
+          "fighter_b_name": "Kyoji Horiguchi",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "3b4803afa824fea3",
+          "fight_url": "http://ufcstats.com/fight-details/3b4803afa824fea3",
+          "fighter_a_id": "253076a23d03dcd0",
+          "fighter_b_id": "0be6776db31d98ec",
+          "fighter_a_name": "Allan Nascimento",
+          "fighter_b_name": "Mitch Raposo",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 2,
+          "fight_id": "afc021700481ac4e",
+          "fight_url": "http://ufcstats.com/fight-details/afc021700481ac4e",
+          "fighter_a_id": "cd13728ae1151f46",
+          "fighter_b_id": "b4b496ec2197ee3e",
+          "fighter_a_name": "Ion Cutelaba",
+          "fighter_b_name": "Navajo Stirling",
+          "weight_class": "light_heavyweight",
+          "weight_class_raw": "Light Heavyweight"
+        },
+        {
+          "bout_order": 3,
+          "fight_id": "17d31249c9ab18af",
+          "fight_url": "http://ufcstats.com/fight-details/17d31249c9ab18af",
+          "fighter_a_id": "b1f21ce050035d58",
+          "fighter_b_id": "34b96d52db1d26e6",
+          "fighter_a_name": "Andre Lima",
+          "fighter_b_name": "Kevin Borjas",
+          "weight_class": "flyweight",
+          "weight_class_raw": "Flyweight"
+        },
+        {
+          "bout_order": 4,
+          "fight_id": "aaec28fa3c0c576d",
+          "fight_url": "http://ufcstats.com/fight-details/aaec28fa3c0c576d",
+          "fighter_a_id": "41cc71cbf210e0fe",
+          "fighter_b_id": "5ec591b78349ba7e",
+          "fighter_a_name": "Hyder Amil",
+          "fighter_b_name": "Christian Rodriguez",
+          "weight_class": "featherweight",
+          "weight_class_raw": "Featherweight"
+        },
+        {
+          "bout_order": 5,
+          "fight_id": "c0980a613f24accd",
+          "fight_url": "http://ufcstats.com/fight-details/c0980a613f24accd",
+          "fighter_a_id": "eff9074bc066f0f2",
+          "fighter_b_id": "bd532e9a2b93870c",
+          "fighter_a_name": "Bia Mesquita",
+          "fighter_b_name": "Melissa Mullins",
+          "weight_class": "w_bantamweight",
+          "weight_class_raw": "Women's Bantamweight"
+        }
+      ]
+    },
+    {
+      "event_id": "31e1ea6fe6b682f8",
+      "event_title": "UFC Fight Night: Fiziev vs. Torres",
+      "event_date": "2026-06-27",
+      "event_url": "http://ufcstats.com/event-details/31e1ea6fe6b682f8",
+      "location": "Baku, Azerbaijan",
+      "bouts": [
+        {
+          "bout_order": 0,
+          "fight_id": "c13dc0cccef263f7",
+          "fight_url": "http://ufcstats.com/fight-details/c13dc0cccef263f7",
+          "fighter_a_id": "c814b4c899793af6",
+          "fighter_b_id": "2e7878927067fdca",
+          "fighter_a_name": "Rafael Fiziev",
+          "fighter_b_name": "Manuel Torres",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        },
+        {
+          "bout_order": 1,
+          "fight_id": "012c307c9d446c4d",
+          "fight_url": "http://ufcstats.com/fight-details/012c307c9d446c4d",
+          "fighter_a_id": "06734ca9d88dec3a",
+          "fighter_b_id": "595db60957de51d3",
+          "fighter_a_name": "Shara Magomedov",
+          "fighter_b_name": "Michel Pereira",
+          "weight_class": "middleweight",
+          "weight_class_raw": "Middleweight"
+        }
+      ]
+    },
+    {
+      "event_id": "fccb0fee256b7b4d",
+      "event_title": "UFC 329",
+      "event_date": "2026-07-11",
+      "event_url": "http://ufcstats.com/event-details/fccb0fee256b7b4d",
+      "location": "Las Vegas, Nevada, USA",
+      "bouts": []
+    },
+    {
+      "event_id": "b96619b3acd7d9da",
+      "event_title": "UFC 330",
+      "event_date": "2026-08-15",
+      "event_url": "http://ufcstats.com/event-details/b96619b3acd7d9da",
+      "location": "Philadelphia, Pennsylvania, USA",
+      "bouts": []
+    }
+  ]
+}
