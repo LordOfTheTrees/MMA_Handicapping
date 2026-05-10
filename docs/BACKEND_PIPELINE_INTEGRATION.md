@@ -32,6 +32,31 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 
 ---
 
+## Harness (pickle vs JSON snapshot)
+
+**Purpose:** prove that the four exported inference JSONs reproduce **`MMAPredictor.predict_proba_point_only`** when evaluated at the artifacts’ snapshot date.
+
+**Date contract:** **`elo_states.json`** and **`style_axes.json`** store a single timeline slice: **`as_of_date`**. Snapshot inference ([`src/export/json_inference.py`](../src/export/json_inference.py)) only matches the pickle when **`fight_date == as_of_date`** for that export (same as [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) `--as-of-date`). The pickle can differ for other dates because it runs full temporal ELO/style.
+
+**Enable integration tests (export smoke + parity):**
+
+1. Set environment variable **`MMA_HARNESS_MODEL`** to an absolute or relative path of a trained **`model.pkl`**, **or**
+2. Place a copy at **`tests/fixtures/parity/model.pkl`**.
+
+**Commands** (from repo root):
+
+```bash
+# No pickle: JSON loader + upcoming transform
+python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events_export tests.test_upcoming_bouts_parse -v
+
+# Requires pickle: export smoke + strict pickle vs exported JSON (bit-identical float64 (6,) probs)
+python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
+```
+
+If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle vs JSON values and **max_abs_delta** (treat as exporter/loader drift until fixed).
+
+---
+
 ## Canonical contract docs (live in sibling deploy repo)
 
 If you cloned both repos under the same parent (e.g. `Personal Coding/`), browse **`../mma.ai/docs/`**.
@@ -75,9 +100,9 @@ Details:
 1. **`model_weights.json`** — **`W`** (6×12), bootstrap draws / config for CI routing (**`ModelConfig`**, **`ci_alpha`**, bootstrap count, elo_MC / Cauchy switches per training). **`export_manifest`** includes `git_sha_training`, `exported_at`, schema version.
 2. Loads the **same** shipped **`MMAPredictor`** pickle as **`python main.py predict`** / **`explain`**.
 3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
-4. **Smoke parity test** (recommended): CLI **`predict`** vs JSON-only reconstruction on a frozen triple (**TODO harness**).
+4. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
 
-**Exit:** four + upcoming JSON files from a manual or CI run; parity test passes when wired.
+**Exit:** four + upcoming JSON files from a manual or CI run; parity test passes when **`MMA_HARNESS_MODEL`** (or fixtures pickle) is set.
 
 ---
 
@@ -134,6 +159,6 @@ See **`mma.ai/docs/BACKEND_PIPELINE_INTEGRATION.md`** for full wording.
 
 ## Where to refine next (**MMA_Handicapping**)
 
-- **Parity harness:** CLI **`predict`** vs JSON-only reconstruction (verification matrix below)
+- **Implemented:** **`tests/test_artifact_parity.py`** (pickle **`predict_proba_point_only`** vs [`src/export/json_inference.py`](../src/export/json_inference.py)); optional **`mma.ai`** **`POST /api/predict`** cross-check remains a separate QA step.
 - **`scripts/export_artifacts.py`**, **`export_upcoming_events.py`**, **`copy_exports_to_mma_ai.py`**
 - Optional: GitHub Action to push **`mma.ai/artifacts`** after export

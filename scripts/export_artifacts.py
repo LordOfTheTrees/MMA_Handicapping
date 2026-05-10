@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import subprocess
 import sys
 from datetime import date, datetime, timezone
 from enum import Enum
@@ -27,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.export.git_meta import git_sha_training_repo  # noqa: E402
 from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
 from src.model.regression import CLASS_LABELS, N_CLASSES  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
@@ -53,23 +53,6 @@ def _json_sanitize(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_json_sanitize(v) for v in obj]
     return str(obj)
-
-
-def _git_sha() -> Optional[str]:
-    try:
-        cp = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if cp.returncode == 0 and cp.stdout:
-            return cp.stdout.strip()
-    except OSError:
-        pass
-    return None
 
 
 def _config_snapshot(predictor: MMAPredictor) -> dict[str, Any]:
@@ -205,7 +188,7 @@ def export_all(
     manifest = {
         "export_schema_version": EXPORT_SCHEMA_VERSION,
         "exported_at": exported_at,
-        "git_sha_training_repo": _git_sha(),
+        "git_sha_training_repo": git_sha_training_repo(cwd=ROOT),
         "as_of_date": as_of_d.isoformat(),
         "notes": "Produced by MMA_Handicapping scripts/export_artifacts.py",
     }

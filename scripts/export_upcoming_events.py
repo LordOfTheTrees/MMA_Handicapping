@@ -11,79 +11,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-EXPORT_SCHEMA_VERSION = "mma-handicapping-upcoming-v1"
-
-
-def _git_sha() -> Optional[str]:
-    try:
-        cp = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if cp.returncode == 0 and cp.stdout:
-            return cp.stdout.strip()
-    except OSError:
-        pass
-    return None
-
-
-def build_upcoming_events_doc(cards: Dict[str, Any]) -> Dict[str, Any]:
-    exported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    manifest = {
-        "export_schema_version": EXPORT_SCHEMA_VERSION,
-        "exported_at": exported_at,
-        "git_sha_training_repo": _git_sha(),
-        "source_upstream_scraped_at": cards.get("scraped_at"),
-        "source_upstream_schema": cards.get("schema_version"),
-    }
-
-    events_out: list[dict[str, Any]] = []
-    for ev in cards.get("events", []):
-        bouts_clean: list[dict[str, Any]] = []
-        for b in ev.get("bouts", []):
-            bouts_clean.append(
-                {
-                    "bout_order": b["bout_order"],
-                    "fight_id": b["fight_id"],
-                    "fight_url": b.get("fight_url"),
-                    "fighter_a_id": b["fighter_a_id"],
-                    "fighter_b_id": b["fighter_b_id"],
-                    "fighter_a_name": b.get("fighter_a_name"),
-                    "fighter_b_name": b.get("fighter_b_name"),
-                    "weight_class": b.get("weight_class"),
-                    "weight_class_raw": b.get("weight_class_raw"),
-                }
-            )
-        events_out.append(
-            {
-                "event_id": ev.get("event_id"),
-                "event_title": ev.get("event_title"),
-                "event_date": ev.get("event_date"),
-                "event_url": ev.get("event_url"),
-                "location": ev.get("location"),
-                "bouts": bouts_clean,
-            }
-        )
-
-    return {
-        "export_manifest": manifest,
-        "export_schema_version": EXPORT_SCHEMA_VERSION,
-        "events": events_out,
-    }
+from src.export.upcoming_events_doc import build_upcoming_events_doc  # noqa: E402
 
 
 def main(argv: Optional[list[str]] = None) -> None:

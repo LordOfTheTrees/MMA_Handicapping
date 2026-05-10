@@ -1,0 +1,25 @@
+{
+  "export_schema_version": "mma-handicapping-upcoming-v1",
+  "events": [
+    {
+      "event_id": "sample-event-1",
+      "event_title": "Sample Fight Night",
+      "event_date": "2026-06-01",
+      "event_url": "http://ufcstats.com/event-details/sample",
+      "location": "Las Vegas, Nevada, USA",
+      "bouts": [
+        {
+          "bout_order": 1,
+          "fight_id": "fight001",
+          "fight_url": "http://ufcstats.com/fight-details/abc",
+          "fighter_a_id": "1111111111111111",
+          "fighter_b_id": "2222222222222222",
+          "fighter_a_name": "Alex Alpha",
+          "fighter_b_name": "Bob Beta",
+          "weight_class": "lightweight",
+          "weight_class_raw": "Lightweight"
+        }
+      ]
+    }
+  ]
+}
