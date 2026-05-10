@@ -57,23 +57,29 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = _repo_root()
     exe = sys.executable
-    cmd: list[str] = [exe, "-m", "unittest"]
-    if not args.quiet:
-        cmd.append("-v")
+    verbose = not args.quiet
 
+    # For "discover", -v must NOT come before "discover" (Python 3.11+ unittest treats
+    # trailing -s/-p as errors: they only apply to discover's sub-parser).
     if args.suite == "all":
-        cmd += ["discover", "-s", "tests", "-p", "test*.py"]
-    elif args.suite == "quick":
-        cmd += [
-            "tests.test_json_snapshot_inference",
-            "tests.test_upcoming_events_export",
-            "tests.test_upcoming_bouts_parse",
-        ]
+        cmd = [exe, "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py"]
+        if verbose:
+            cmd.append("-v")
     else:
-        cmd += [
-            "tests.test_export_artifacts_smoke",
-            "tests.test_artifact_parity",
-        ]
+        cmd = [exe, "-m", "unittest"]
+        if verbose:
+            cmd.append("-v")
+        if args.suite == "quick":
+            cmd += [
+                "tests.test_json_snapshot_inference",
+                "tests.test_upcoming_events_export",
+                "tests.test_upcoming_bouts_parse",
+            ]
+        else:
+            cmd += [
+                "tests.test_export_artifacts_smoke",
+                "tests.test_artifact_parity",
+            ]
 
     env = os.environ.copy()
     if args.model:
