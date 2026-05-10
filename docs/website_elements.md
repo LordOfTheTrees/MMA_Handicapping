@@ -206,4 +206,16 @@ Modeled after `2023-03-04_split_barrier.png`:
 
 ---
 
+## Automated checks (`MMA_Handicapping` repo)
+
+Structural validation that **`JSON_exports/`** JSON aligns with **this** page inventory (home/upcoming, rankings/ELO snapshot, fighter profile fields, hypothetical/single-bout **`predict_proba_snapshot`**, about-model **`model_weights`**) runs via:
+
+```bash
+python scripts/run_harness.py site
+```
+
+Optional env **`MMA_SITE_EXPORT_DIR`** if artifacts live outside **`JSON_exports/`**. Subscription/chrome and Contact pages have no artifact contract in the training repo.
+
+---
+
 *This document will be updated as additional pages and elements are described.*

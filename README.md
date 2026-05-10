@@ -83,13 +83,14 @@ Wraps **`unittest`** so you don’t need discovery flags. Repo root = directory 
 
 ```bash
 python scripts/run_harness.py                     # all modules under tests/
-python scripts/run_harness.py quick               # offline only (no model.pkl)
+python scripts/run_harness.py quick               # offline units (no model.pkl)
+python scripts/run_harness.py site                # committed JSON_exports vs docs/website_elements.md pages
 python scripts/run_harness.py integration         # export smoke + pickle vs JSON parity
 python scripts/run_harness.py integration --model path/to/model.pkl
 python scripts/run_harness.py -q integration      # quieter (no -v)
 ```
 
-Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_HARNESS_MODEL`** if set and the path exists, otherwise **`data/model.pkl`**. More detail: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).
+Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_HARNESS_MODEL`** if set and the path exists, otherwise **`data/model.pkl`**. The **`site`** suite reads **`JSON_exports/`** by default (**`MMA_SITE_EXPORT_DIR`** to override). Detail: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).
 
 ---
 

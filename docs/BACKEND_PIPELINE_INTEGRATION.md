@@ -53,12 +53,17 @@ python scripts/run_harness.py                         # full discover
 
 # Raw unittest (same suites the script calls)
 python -m unittest tests.test_json_snapshot_inference tests.test_upcoming_events_export tests.test_upcoming_bouts_parse -v
+python -m unittest tests.test_site_export_pages -v
 python -m unittest tests.test_export_artifacts_smoke tests.test_artifact_parity -v
 ```
 
 **Console output:** The unittest **`skipped '…'`** line embeds **`HARNESS_SKIP_REASON`** (`tests.harness_skip`): env path and **`data/model.pkl`**, each with **`exists=`**. Loading those modules still prints the stderr banner (`print_harness_integration_preamble`).
 
 If parity fails, **`assert_point_probs_match_pkl`** prints **per-class** pickle vs JSON values and **max_abs_delta** (treat as exporter/loader drift until fixed).
+
+### Site page contracts (committed JSON vs `website_elements.md`)
+
+**`tests/test_site_export_pages.py`** checks **`JSON_exports/*.json`** (override with **`MMA_SITE_EXPORT_DIR`**) against the SPA page inventory in **`docs/website_elements.md`**: home/upcoming calendar, rankings snapshot, fighter profile keys, bout/hypothetical inference via **`predict_proba_snapshot`**, and “about model” **`model_weights`** fields. **`python scripts/run_harness.py site`**. Subscription UI and Contact have no artifact contract here.
 
 ---
 
