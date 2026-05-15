@@ -78,7 +78,7 @@ Estimated on **6,366** decisive A-side Tier‑1 fights (`fight_date < 2023-01-01
 |--------|-----------------|--------------|------------|------------|----------------|
 | **Uniform random (6-way)** | 1.7918 | — | 16.7% | ~0 | Theoretical |
 | **Full model (bespoke, frozen config)** | **1.3656** | **0.7031** | **41.27%** | **0.2638** | [`first_run_report.json`](first_run_report.json) pristine pool; `generated_utc` **2026-04-24** |
-| **XGBoost** (same tabular features, pristine eval) | 1.3930 | 0.7135 | 40.48% | 0.3305 | [`scripts/benchmark_xgboost_vs_holdout.py`](../scripts/benchmark_xgboost_vs_holdout.py) default `--eval-mode pristine`; run **2026-05-05** on current `data/` |
+| **XGBoost** (same tabular features, pristine eval) | 1.3930 | 0.7135 | 40.48% | 0.3305 | [`scripts/dev/benchmark_xgboost_vs_holdout.py`](../scripts/dev/benchmark_xgboost_vs_holdout.py) default `--eval-mode pristine`; run **2026-05-05** on current `data/` |
 | **ELO-only (6-way, §3)** | 1.4781 | 0.7325 | 40.48% | 0.1790 | Recomputed same cohort + frozen ELO settings (see §3) |
 
 **Bespoke vs XGBoost (same 1,529 fights, same feature rows):** the bespoke multinomial model is **better on the primary metric** — mean log-loss **1.366 vs 1.393** (**~0.027 nats** lower, ~**2.0%** relative improvement vs the XGB score). Brier and accuracy also **slightly favor** bespoke. XGBoost posts **higher macro F1** (0.33 vs 0.26) on this slice, i.e. different error tradeoffs, not better probability quality for handicapping.
@@ -155,7 +155,7 @@ A **multiclass XGBoost** reference is implemented as a **standalone script** (op
 
 | Item | Detail |
 |------|--------|
-| **Script** | [`scripts/benchmark_xgboost_vs_holdout.py`](../scripts/benchmark_xgboost_vs_holdout.py) |
+| **Script** | [`scripts/dev/benchmark_xgboost_vs_holdout.py`](../scripts/dev/benchmark_xgboost_vs_holdout.py) |
 | **Install** | `pip install xgboost` or `pip install -r requirements-benchmark.txt` |
 | **Features** | [`MMAPredictor.build_xyw_for_fights`](../src/pipeline.py) — same construction as `train_regression` |
 | **Split** | **Train:** `fight_date < holdout_start` (default `2023-01-01`). **Test (default):** only Tier‑1 fights in **`--eval-years`** (default `2023,2024,2025`) — same **pristine** cohort as [`first_run_report.json`](first_run_report.json), not every row with `fight_date ≥ holdout` (which would pull in **2026+** as your CSV grows). Use `--eval-mode expanding` for that behavior. |
@@ -165,7 +165,7 @@ A **multiclass XGBoost** reference is implemented as a **standalone script** (op
 **Command:**
 
 ```bash
-python   scripts/benchmark_xgboost_vs_holdout.py   --data-dir ./data  --elo-cache ./data/elo_cache.pkl
+python   scripts/dev/benchmark_xgboost_vs_holdout.py   --data-dir ./data  --elo-cache ./data/elo_cache.pkl
 ```
 
 **Expect:** on a typical laptop, **ELO build or cache load** dominates the first run; materializing **feature rows** (~6.5k train + ~1.5k test) is usually **several minutes** (style axes per row). **XGBoost fit** is typically on the order of **tens of seconds** at default `n_estimators=300`. Use `--matrix-progress-every 0` for quieter logs.

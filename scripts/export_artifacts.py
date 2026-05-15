@@ -2,14 +2,15 @@
 """
 Export trained :class:`~src.pipeline.MMAPredictor` state to portable JSON for the deploy repo.
 
-Run from repo root::
+Run from repo root (defaults: ``<repo>/data/model.pkl``, ``<repo>/JSON_exports``)::
 
-    python scripts/export_artifacts.py --model-path data/model.pkl --out-dir JSON_exports
+    python scripts/export_artifacts.py
     python scripts/export_artifacts.py ... --copy-to-mma-ai
 
 Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
-``fighter_profiles.json``, and ``reference_distributions.json`` (quantile grids
-for ``mma.ai`` + optional ``chart_histograms`` bin payloads).
+``fighter_profiles.json`` (including optional per-division ``elo_trajectories`` when the
+pickle was built with ELO trajectory recording), and ``reference_distributions.json``
+(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads).
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter  # noqa: E402
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
 from src.export.reference_distributions_export import (  # noqa: E402
     REFERENCE_DISTRIBUTIONS_FILENAME,
@@ -178,9 +180,15 @@ def _export_reference_distributions(
 
 
 def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) -> dict[str, Any]:
-    profs = {}
-    for fid, p in predictor.profiles.items():
-        profs[fid] = _json_sanitize(dataclasses.asdict(p))
+    em = predictor.elo_model
+    by_fid = nested_elo_trajectories_by_fighter(em) if em is not None else {}
+    profs: dict[str, Any] = {}
+    for fid, prof in predictor.profiles.items():
+        row = _json_sanitize(dataclasses.asdict(prof))
+        tr = by_fid.get(fid)
+        if tr:
+            row["elo_trajectories"] = tr
+        profs[fid] = row
     return {
         "export_manifest": manifest,
         "export_schema_version": EXPORT_SCHEMA_VERSION,
@@ -224,8 +232,18 @@ def export_all(
 
 def main(argv: Optional[list[str]] = None) -> None:
     p = argparse.ArgumentParser(description="Export MMAPredictor to JSON artifacts for mma.ai / OctagonELO.")
-    p.add_argument("--model-path", type=Path, required=True)
-    p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument(
+        "--model-path",
+        type=Path,
+        default=ROOT / "data" / "model.pkl",
+        help="Pickled MMAPredictor (default: <repo>/data/model.pkl)",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=ROOT / "JSON_exports",
+        help="Directory for the five JSON files (default: <repo>/JSON_exports)",
+    )
     p.add_argument(
         "--as-of-date",
         type=str,
@@ -244,6 +262,14 @@ def main(argv: Optional[list[str]] = None) -> None:
         metavar="PATH",
         help="Override deploy dir (default: <repo>/../mma.ai/artifacts)",
     )
+    p.add_argument(
+        "--rebuild-elo-for-trajectories",
+        action="store_true",
+        help=(
+            "If fights are loaded but ELO has no trajectory history, rebuild ELO once with "
+            "trajectory recording (embedded fights list; slower)"
+        ),
+    )
     args = p.parse_args(argv)
 
     as_of: Optional[date] = None
@@ -251,6 +277,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         as_of = date.fromisoformat(args.as_of_date)
 
     predictor = MMAPredictor.load(Path(args.model_path))
+    if args.rebuild_elo_for_trajectories and predictor.fights:
+        em0 = predictor.elo_model
+        needs = em0 is None or not any(em0.iter_trajectory_keys())
+        if needs:
+            print("[export_artifacts] Rebuilding ELO with record_trajectories=True ...", flush=True)
+            predictor.build_elo(record_trajectories=True)
     out_dir = Path(args.out_dir)
     export_all(predictor, out_dir, as_of=as_of)
     print(f"Wrote 5 JSON files under {out_dir.resolve()}", flush=True)

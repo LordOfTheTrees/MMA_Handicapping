@@ -112,13 +112,15 @@ python -m src.cli.train --data-dir ./data --model-path ./out/model.pkl [TRAIN_OP
 
 Implementations live under [`src/cli/`](../src/cli/). From the repo root, run with **`python -m src.cli.<module>`** so `src` resolves as a package (`PYTHONPATH`/cwd is typically the repo root).
 
+**Operator / deploy scripts** stay in [`scripts/`](../scripts/): `weekly_update.py`, `export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py`, `run_harness.py` (see [§9](#9-octagonelo--mmaai-json-export-offline)). **Optional diagnostics, pilots, and benchmarks** live in [`scripts/dev/`](../scripts/dev/) — see [`scripts/dev/README.md`](../scripts/dev/README.md).
+
 | Module | Role |
 |--------|------|
 | [`src/cli/run_phase3_tuning.py`](../src/cli/run_phase3_tuning.py) | Phase‑3 walk‑forward / pristine evaluation CSV+JSON (`docs/hyperparameter-tuning.md`). |
 | [`src/cli/plot_prediction_three_viz.py`](../src/cli/plot_prediction_three_viz.py) | Split-barrier and related single-fight prediction figures; **percent labels are whole numbers** (see ADR-22). |
 | [`src/cli/plot_training_feature_histograms.py`](../src/cli/plot_training_feature_histograms.py) | Builds the training matrix (`train_regression(fit_model=False)`) and writes per-feature PNG histograms. **Global days idle** figure for **`mma.ai`**: [`days-idle-histogram-for-mma-ai.md`](days-idle-histogram-for-mma-ai.md). |
-| [`scripts/pilot_lbfgs_stopping.py`](../scripts/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
-| [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) | Phase‑2 smoke checks. |
+| [`scripts/dev/pilot_lbfgs_stopping.py`](../scripts/dev/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
+| [`scripts/dev/phase2_smoke.py`](../scripts/dev/phase2_smoke.py) | Phase‑2 smoke checks. |
 | [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization: combined division grid (`data/elo_by_division.png`) plus per-division PNGs under `data/figures/division_elo_histograms/` by default. |
 
 ---
@@ -236,7 +238,8 @@ The deploy repo loads **six JSON files** from **`mma.ai/artifacts/`** (no pickle
 
 | Script | Role |
 |--------|------|
-| [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json` |
+| [`scripts/weekly_update.py`](../scripts/weekly_update.py) | Weekly operator path: reload data, `build_elo`, `train_regression` (refresh or full refit), export five JSONs, optional pickle update |
+| [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json`, `reference_distributions.json` |
 | [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) | `data/upcoming_cards.json` to `upcoming_events.json` |
 | [`scripts/copy_exports_to_mma_ai.py`](../scripts/copy_exports_to_mma_ai.py) | Copy folder of `*.json` into sibling `mma.ai/artifacts` |
 

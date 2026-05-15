@@ -98,6 +98,8 @@ Model lookup for **`integration`** matches **`tests/harness_skip.py`**: **`MMA_H
 
 Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO). Run everything from **this repo root** (`MMA_Handicapping/`).
 
+**Layout:** **`scripts/`** holds operator entry points (`weekly_update.py`, `export_*.py`, `copy_exports_to_mma_ai.py`, `run_harness.py`). Optional smokes, pilots, and benchmarks live in **`scripts/dev/`** — see **`scripts/dev/README.md`**.
+
 **Prerequisites**
 
 - Trained pickle: e.g. **`data/model.pkl`** (from `python -m src.cli.train ...` — see [Quick usage](#quick-usage)).
@@ -123,17 +125,17 @@ Production loads these from **`mma.ai/artifacts/`** (same filenames). Do **not**
 After updating CSVs under **`data/`**, rebuild ELO + training-matrix-derived JSON **without** L-BFGS/bootstrap (pickle **W** unchanged):
 
 ```bash
-python scripts/export_weekly.py refresh --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
+python scripts/weekly_update.py refresh --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
 ```
 
-This reloads data, runs **`build_elo`**, **`train_regression(fit_model=False)`**, writes the five JSONs, and **updates the pickle** with fresh ELO (use **`--no-save-model`** to skip writing `model.pkl`).
+This reloads data, runs **`build_elo`**, **`train_regression(fit_model=False)`**, writes the five JSONs, and **updates the pickle** with fresh ELO (use **`--no-save-model`** to skip writing `model.pkl`). With defaults (`--model-path ./data/model.pkl`, etc.) you can run **`python scripts/weekly_update.py refresh`**.
 
 ### Full retrain (new **W** + export)
 
-Refit multinomial regression, save pickle, then export (**step 6** + same five JSONs):
+Refit multinomial regression, save pickle, then export (**step 6** + same five JSONs). **Hyperparameters stay frozen:** the run uses the **`Config` inside your pickle** (λ, Huber δ, L-BFGS limits, bootstrap seed/count, ELO knobs, holdout cut, …). This path **does not** re-explore hyperparameters (no Phase‑3 / walk-forward search); it only re-optimizes **regression weights `W`** (and bootstrap coefficient draws for CIs) on the current training matrix. Deliberate hyperparameter changes belong in a separate tuning / frozen-winner workflow.
 
 ```bash
-python scripts/export_weekly.py retrain --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
+python scripts/weekly_update.py retrain --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
 ```
 
 Optional: **`--copy-to-mma-ai`** and **`--as-of-date YYYY-MM-DD`** on either subcommand (same semantics as **`export_artifacts.py`**).

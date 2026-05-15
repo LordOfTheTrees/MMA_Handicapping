@@ -1,3 +1,3 @@
-# Optional: XGBoost holdout benchmark (scripts/benchmark_xgboost_vs_holdout.py)
+# Optional: XGBoost holdout benchmark (scripts/dev/benchmark_xgboost_vs_holdout.py)
 # Install: pip install -r requirements-benchmark.txt
 xgboost>=2.0.0

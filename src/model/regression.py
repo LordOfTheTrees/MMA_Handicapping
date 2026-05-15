@@ -63,7 +63,7 @@ def relative_feature_importance(
     if groups:
         for gname, names in groups.items():
             out_groups[gname] = float(
-                np.sum(rel[idx[nm]] for nm in names if nm in idx)
+                sum(rel[idx[nm]] for nm in names if nm in idx)
             )
     return rel, out_groups
 

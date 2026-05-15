@@ -158,7 +158,7 @@ python main.py predict <fighter_id_a> <fighter_id_b> lightweight --date 2024-06-
 
 Swap A and B: mirrored outcome classes should **roughly** align (e.g. A’s win-KO vs B’s lose-KO). **Exact** `1e-6` equality is **not** expected with the current **multiplicative matchup interaction** features (`striking_matchup`, etc.) — see [`validation-and-few-shot.md`](validation-and-few-shot.md).
 
-Use point probabilities only (no bootstrap) and a **relaxed** tolerance, e.g. [`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py), or:
+Use point probabilities only (no bootstrap) and a **relaxed** tolerance, e.g. [`scripts/dev/phase2_smoke.py`](../scripts/dev/phase2_smoke.py), or:
 
 ```python
 from src.pipeline import MMAPredictor

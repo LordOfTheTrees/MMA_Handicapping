@@ -420,6 +420,11 @@ class MMAPredictor:
 
         If *fit_model* is False, only the training matrix and weights are built;
         no L-BFGS or bootstrap. Used by pilot / diagnostics to reuse *X* / *y*.
+
+        When *fit_model* is True, optimization uses **fixed** hyperparameters from
+        ``self.config.model`` (Huber ``delta``, ``l2_lambda``, L-BFGS options) and
+        ``self.config`` for bootstrap — not a hyperparameter search (see Phase‑3
+        tuning CLI for selection workflows).
         """
         if self.elo_model is None:
             raise RuntimeError("Call build_elo() before train_regression().")

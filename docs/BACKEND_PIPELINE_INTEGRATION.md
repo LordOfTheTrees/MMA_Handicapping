@@ -101,15 +101,18 @@ Entry points:
 
 | Script | Output |
 |--------|--------|
-| **`scripts/export_artifacts.py`** | **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`**, **`reference_distributions.json`** (under **`--out-dir`**, typically **`JSON_exports/`**) — see **`mma.ai`** **`api/reference_distributions.py`** |
+| **`scripts/weekly_update.py`** | Operator path: reload **`data/`**, **`build_elo`**, **`train_regression`** (`refresh` keeps regression **W**; `retrain` refits), write five JSONs, optional pickle update — see **`README.md`**. |
+| **`scripts/export_artifacts.py`** | Pickle only → same five inference JSONs (no data reload); optional **`--rebuild-elo-for-trajectories`**. |
 | **`scripts/export_upcoming_events.py`** | **`upcoming_events.json`** |
 | **`scripts/copy_exports_to_mma_ai.py`** | Copies **`*.json`** into **`mma.ai/artifacts/`** |
+
+Optional diagnostics and research CLIs: **`scripts/dev/`** ([`scripts/dev/README.md`](../scripts/dev/README.md)).
 
 Details:
 
 1. **`model_weights.json`** — **`W`** (6×12), bootstrap draws / config for CI routing (**`ModelConfig`**, **`ci_alpha`**, bootstrap count, elo_MC / Cauchy switches per training). **`export_manifest`** includes `git_sha_training`, `exported_at`, schema version.
 2. **`reference_distributions.json`** — **`matchup_features`**: 101-point empirical quantiles per regression feature (percentiles 0…100). Optional **`global_days_idle`**. **`division_elo`**: per–weight-class ELO quantiles at snapshot. Training repo may add **`chart_histograms`** (bins/counts) for static charts; **`mma.ai`** preserves these keys after validation. **Layoff histogram + export contract:** [`docs/days-idle-histogram-for-mma-ai.md`](days-idle-histogram-for-mma-ai.md).
-3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout).
+3. **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** — canonical field names in **`mma.ai/docs/export-artifacts-spec.md`** (sibling checkout). **`fighter_profiles`**: static fields from CSV plus optional **`elo_trajectories`**: `{ "<weight_class>": [ { "fight_date", "elo", "opponent_fighter_id" }, ... ] }` when the model was built with ELO trajectory recording (`weekly_update` default; or `export_artifacts.py --rebuild-elo-for-trajectories`).
 4. Loads the **same** shipped **`MMAPredictor`** pickle as **`python main.py predict`** / **`explain`**.
 5. **Parity harness:** [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py) reloads the temp export and compares to **`predict_proba_point_only`** (see **Harness** above).
 
@@ -171,5 +174,5 @@ See **`mma.ai/docs/BACKEND_PIPELINE_INTEGRATION.md`** for full wording.
 ## Where to refine next (**MMA_Handicapping**)
 
 - **Implemented:** **`tests/test_artifact_parity.py`** (pickle **`predict_proba_point_only`** vs [`src/export/json_inference.py`](../src/export/json_inference.py)); optional **`mma.ai`** **`POST /api/predict`** cross-check remains a separate QA step.
-- **`scripts/export_artifacts.py`**, **`export_upcoming_events.py`**, **`copy_exports_to_mma_ai.py`**
+- **`scripts/weekly_update.py`**, **`export_artifacts.py`**, **`export_upcoming_events.py`**, **`copy_exports_to_mma_ai.py`**
 - Optional: GitHub Action to push **`mma.ai/artifacts`** after export

@@ -69,13 +69,13 @@ The codebase is already oriented toward **data-sparse fighters**:
 
 [`matchup/interactions.py`](../src/matchup/interactions.py) states that signed **differences** flip sign when A and B swap. **Multiplicative interaction terms** (`striking_matchup`, `grappling_matchup`, `finish_matchup`) do **not** satisfy `f(A,B) = -f(B,A)` in general (`sa*(1-sb) ≠ -sb*(1-sa)`). So **exact** mirror identities such as `P_A(win KO) = P_B(lose KO)` are **not guaranteed** for the full feature vector. Treat tight symmetry assertions (e.g. `1e-6`) as **invalid** unless interactions are removed or redesigned.
 
-[`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) uses a **relaxed** tolerance by default; use `--strict-symmetry` only if you are experimenting with a symmetric feature set.
+[`scripts/dev/phase2_smoke.py`](../scripts/dev/phase2_smoke.py) uses a **relaxed** tolerance by default; use `--strict-symmetry` only if you are experimenting with a symmetric feature set.
 
 ---
 
 ## Phase 2 automation
 
-[`scripts/phase2_smoke.py`](../scripts/phase2_smoke.py) runs fast checks: finite `X_train`, class counts, **symmetry** of point probabilities under A/B swap (no bootstrap), and a small **ELO top/tail** snapshot. Full **`predict`** (with CIs) remains `python main.py predict ...`.
+[`scripts/dev/phase2_smoke.py`](../scripts/dev/phase2_smoke.py) runs fast checks: finite `X_train`, class counts, **symmetry** of point probabilities under A/B swap (no bootstrap), and a small **ELO top/tail** snapshot. Full **`predict`** (with CIs) remains `python main.py predict ...`.
 
 ---
 

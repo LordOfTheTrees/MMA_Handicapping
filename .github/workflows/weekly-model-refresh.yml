@@ -1,0 +1,102 @@
+# Weekly: scrape → refresh ELO + matrix + export JSON (coefficients unchanged).
+# State forwarding: downloads newest ``mma-model-state`` artifact (``data/model.pkl``), then uploads
+# that name again after success so the next run can restore without AWS/extra repos.
+# Cold start (no artifact yet): full ``train`` + ``export_artifacts`` once.
+#
+# Annual hyperparameter search stays local; not automated here.
+#
+# Schedule: GitHub cron is UTC-only. Monday 03:00 Eastern Standard Time → 08:00 UTC.
+# When the 1st is a Monday, scheduled weekly is skipped — monthly retrain owns that slot.
+
+name: Weekly model refresh
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: mma-model-pipeline
+  cancel-in-progress: false
+
+env:
+  OMP_NUM_THREADS: 1
+  OPENBLAS_NUM_THREADS: 1
+  MKL_NUM_THREADS: 1
+
+jobs:
+  schedule-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run_refresh: ${{ steps.pick.outputs.run_refresh }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run_refresh=true" >> $GITHUB_OUTPUT
+          elif [ "$(date -u +%d)" = "01" ]; then
+            echo "run_refresh=false" >> $GITHUB_OUTPUT
+            echo "**Skipped:** First of month — \`monthly-model-retrain\` covers scrape + retrain; weekly refresh not needed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run_refresh=true" >> $GITHUB_OUTPUT
+          fi
+
+  refresh:
+    needs: schedule-gate
+    if: needs.schedule-gate.outputs.run_refresh == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore model.pkl from latest mma-model-state artifact
+        id: restore_state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_restore_model_artifact.py
+
+      - name: Scrape UFCStats → refresh CSVs
+        run: python -c "from pathlib import Path; from src.data.refresh import refresh_data; refresh_data(Path('data'))"
+
+      - name: Refresh pipeline (ELO + matrix, keep W)
+        if: steps.restore_state.outputs.seed == 'true'
+        run: python scripts/weekly_update.py refresh --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Cold start — full train (no prior pickle)
+        if: steps.restore_state.outputs.seed != 'true'
+        run: python main.py --model-path ./data/model.pkl train --data-dir ./data --no-scrape --no-holdout
+
+      - name: Cold start — export JSON
+        if: steps.restore_state.outputs.seed != 'true'
+        run: python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Upload model pickle for next run (mma-model-state)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mma-model-state
+          path: data/model.pkl
+          if-no-files-found: error
+
+      - name: Upload run bundle (CSVs, JSON exports)
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-refresh-${{ github.run_id }}
+          path: |
+            data/ufcstats_fights.csv
+            data/fighter_profiles.csv
+            data/upcoming_cards.json
+            JSON_exports/
+          if-no-files-found: warn

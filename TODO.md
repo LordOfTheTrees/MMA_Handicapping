@@ -20,7 +20,7 @@ This file is the **human-facing roadmap**: **next work** in order and high-level
    - **Baseline only:** `python -m src.cli.run_phase3_tuning` **without** `--selection-search` (single `Config` walk-forward) on the same `selection-start`/`end`, compare curves to the saved metrics.
    - **Smaller search:** same script with **`--n-trials 10`–`20`**, and/or **narrower** `--selection-start` / `--selection-end` (e.g. 2018–2022) to see if **ranking** of winners is stable vs the 50-trial run.
    - **OAT / one-knob** generations on **holdout** ([`docs/todo.md`](docs/todo.md) §3.4) for cheap sensitivity — does **not** replace walk-forward, but calibrates “how much knob X moves log-loss” on a **locked** data snapshot.
-   - **Optimizer cost:** if you re-run long searches, use **`scripts/pilot_lbfgs_stopping.py`** and (later) **tuning-only** `ftol`/`gtol`/`max_iter` *after* a **ranking** spot-check, not on faith alone.
+   - **Optimizer cost:** if you re-run long searches, use **`scripts/dev/pilot_lbfgs_stopping.py`** and (later) **tuning-only** `ftol`/`gtol`/`max_iter` *after* a **ranking** spot-check, not on faith alone.
 
 **Data refresh:** If `ufcstats_fights.csv` / profiles gain material rows, treat Phase 3 as a **new campaign** (re-baseline or re-run `python -m src.cli.run_phase3_tuning` when you need comparability). Operational steps: scraper / gap report / refresh flows in [`docs/todo.md`](docs/todo.md) §1 and [`README.md`](README.md). After refresh, re-run **export** + **`python scripts/run_harness.py site`** (and **`integration`** if you rely on pickle parity).
 

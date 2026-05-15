@@ -1,0 +1,80 @@
+# Monthly: scrape → full ``weekly_update.py retrain`` (bootstrap per pickle Config) → export JSON.
+# Same artifact forwarding as weekly: restore ``mma-model-state`` / upload after success.
+# Cold start: full ``train`` + ``export_artifacts`` (matches initial CI bootstrap).
+#
+# Re-hyperparameterization stays local.
+#
+# Schedule: 1st of month 03:00 EST → 08:00 UTC.
+
+name: Monthly model retrain (bootstrap)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 1 * *"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: mma-model-pipeline
+  cancel-in-progress: false
+
+env:
+  OMP_NUM_THREADS: 1
+  OPENBLAS_NUM_THREADS: 1
+  MKL_NUM_THREADS: 1
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore model.pkl from latest mma-model-state artifact
+        id: restore_state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_restore_model_artifact.py
+
+      - name: Scrape UFCStats → refresh CSVs
+        run: python -c "from pathlib import Path; from src.data.refresh import refresh_data; refresh_data(Path('data'))"
+
+      - name: Full retrain + bootstrap + export
+        if: steps.restore_state.outputs.seed == 'true'
+        run: python scripts/weekly_update.py retrain --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Cold start — full train + export (no prior pickle)
+        if: steps.restore_state.outputs.seed != 'true'
+        run: |
+          python main.py --model-path ./data/model.pkl train --data-dir ./data --no-scrape --no-holdout
+          python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Upload model pickle for next run (mma-model-state)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mma-model-state
+          path: data/model.pkl
+          if-no-files-found: error
+
+      - name: Upload run bundle (CSVs, JSON exports)
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-retrain-${{ github.run_id }}
+          path: |
+            data/ufcstats_fights.csv
+            data/fighter_profiles.csv
+            data/upcoming_cards.json
+            JSON_exports/
+          if-no-files-found: warn
