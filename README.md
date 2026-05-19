@@ -148,9 +148,9 @@ Workflows under **[`.github/workflows/`](.github/workflows/)** run on GitHub-hos
 |----------|------|
 | **`weekly-model-refresh`** | Scheduled Mondays (~03:00 EST → 08:00 UTC); restores **`mma-model-state`**, scrapes UFCStats, **`weekly_update refresh`** (with **`--no-scrape`** after the scrape step). Skips when UTC day is the 1st (monthly owns that slot). |
 | **`monthly-model-retrain`** | Scheduled 1st of month 08:00 UTC; scrape + **`weekly_update retrain`**. |
-| **`sync-json-to-mma-ai`** | After weekly/monthly **succeed** on the default branch **or** manual **Run workflow**: downloads **`mma-json-exports`**, commits **`artifacts/*.json`** on **`mma.ai`**. Requires repo secret **`MMA_AI_SYNC_PAT`** (HTTPS PAT with **Contents: Read and write** on **`mma.ai`**). |
+| **`sync-json-to-mma-ai`** | After weekly/monthly **succeed** on the default branch **or** manual **Run workflow**: downloads newest **`weekly-refresh-*`** / **`monthly-retrain-*`** (**`run-bundle`**), commits **`artifacts/*.json`** on **`mma.ai`**. Requires **`MMA_AI_SYNC_PAT`** (HTTPS PAT with **Contents: Read and write** on **`mma.ai`**). |
 
-Weekly/monthly upload **`mma-json-exports`** (stable name) plus run-specific bundles. Pull artifacts from the Actions UI or let **`sync-json-to-mma-ai`** push to **`mma.ai`**. Full checklist: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md)**.
+Weekly/monthly upload **`mma-model-state`** plus run bundles **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** (includes **`JSON_exports/`**). Pull artifacts from the Actions UI or let **`sync-json-to-mma-ai`** push to **`mma.ai`**. Full checklist: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md)**.
 
 ### One-time / repeat: full manual sequence
 

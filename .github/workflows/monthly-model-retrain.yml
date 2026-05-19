@@ -79,10 +79,3 @@ jobs:
             data/upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn
-
-      - name: Upload mma-json-exports (sync to mma.ai)
-        uses: actions/upload-artifact@v4
-        with:
-          name: mma-json-exports
-          path: JSON_exports/
-          if-no-files-found: error

@@ -4,11 +4,12 @@
 # or manually via **Run workflow**.
 #
 # Prerequisites:
-# 1. Weekly / monthly workflows upload artifact ``mma-json-exports``.
+# 1. Weekly / monthly upload run bundles ``weekly-refresh-<run_id>`` / ``monthly-retrain-<run_id>``
+#    (include ``JSON_exports/``). Sync uses ``run-bundle`` = newest matching artifact.
 # 2. Repo secret ``MMA_AI_SYNC_PAT``: PAT with ``contents: write`` on ``mma.ai``.
 #
-# Defaults for automated runs: ``LordOfTheTrees/mma.ai`` + ``mma-json-exports``.
-# Manual dispatch can override repo / artifact name.
+# Defaults for automated runs: ``LordOfTheTrees/mma.ai`` + ``run-bundle``.
+# Manual dispatch can override artifact name (exact ID suffix not needed — use ``run-bundle``).
 
 name: Sync JSON exports to mma.ai
 
@@ -21,9 +22,11 @@ on:
         default: LordOfTheTrees/mma.ai
         type: string
       artifact_name:
-        description: Artifact name to download (from weekly/monthly CI uploads)
+        description: >-
+          run-bundle (default) = newest weekly-refresh-* or monthly-retrain-*;
+          or an exact artifact name from Actions.
         required: true
-        default: mma-json-exports
+        default: run-bundle
         type: string
 
   workflow_run:
@@ -53,7 +56,7 @@ jobs:
       )
 
     env:
-      ARTIFACT_NAME: ${{ inputs.artifact_name || 'mma-json-exports' }}
+      ARTIFACT_NAME: ${{ inputs.artifact_name || 'run-bundle' }}
       MMA_AI_REPO: ${{ inputs.mma_ai_repo || 'LordOfTheTrees/mma.ai' }}
       TRIGGER_LABEL: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name || 'manual' }}
 

@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-Download the newest non-expired GitHub Actions artifact ZIP by name and extract it.
+Download the newest non-expired GitHub Actions artifact ZIP and extract it.
 
-Used by ``sync-json-to-mma-ai`` workflow. Uses ``curl`` for the ZIP URL so Azure redirects work.
+Used by ``sync-json-to-mma-ai``. Uses ``curl`` for the ZIP URL so Azure redirects work.
 
-Environment:
+Selection order:
 
-- ``GITHUB_REPOSITORY`` — ``owner/repo`` (Actions sets this)
-- ``GITHUB_TOKEN`` — token with ``actions: read``
+1. If ``artifact_name`` is ``run-bundle`` or ``AUTO`` (case-insensitive): skip exact match; pick the
+   newest non-expired artifact whose name starts with any ``--fallback-prefix`` (default:
+   ``weekly-refresh-``, ``monthly-retrain-``) — these are the CI **run bundles** that include
+   ``JSON_exports/``.
+2. Otherwise: prefer newest artifact whose **name equals** ``artifact_name``; if none, same prefix
+   fallback as above.
 
 CLI::
 
-    python scripts/ci_download_latest_artifact.py <artifact_name> <extract_to_dir>
+    python scripts/ci_download_latest_artifact.py <artifact_name|run-bundle|AUTO> <extract_to_dir> [--fallback-prefix PREFIX ...]
 
-Example::
+Environment:
 
-    python scripts/ci_download_latest_artifact.py mma-json-exports ./_bundle
+- ``GITHUB_REPOSITORY``, ``GITHUB_TOKEN`` — required.
 """
 from __future__ import annotations
 
@@ -30,6 +34,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Any, List, Optional, Tuple
 
 
 class _RedirectBlobSafe(urllib.request.HTTPRedirectHandler):
@@ -81,17 +86,76 @@ def _download_artifact_zip(repo: str, aid: str, token: str, dest: Path) -> None:
         dest.write_bytes(resp.read())
 
 
+def _fetch_artifact_pages(repo: str, token: str, *, max_pages: int = 15) -> List[dict[str, Any]]:
+    """List artifacts (newest first per page); concatenate pages."""
+    hdr = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    all_rows: List[dict[str, Any]] = []
+    for page in range(1, max_pages + 1):
+        api = f"https://api.github.com/repos/{repo}/actions/artifacts?per_page=100&page={page}"
+        req = urllib.request.Request(api, headers=hdr)
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.load(resp)
+        batch = data.get("artifacts") or []
+        if not batch:
+            break
+        all_rows.extend(batch)
+        if len(batch) < 100:
+            break
+    return all_rows
+
+
+def _pick_artifact(
+    rows: List[dict[str, Any]],
+    exact_name: Optional[str],
+    fallback_prefixes: List[str],
+) -> Tuple[Optional[int], Optional[str]]:
+    alive = [a for a in rows if not a.get("expired")]
+    alive.sort(key=lambda a: a["created_at"], reverse=True)
+
+    if exact_name:
+        for a in alive:
+            if a.get("name") == exact_name:
+                return int(a["id"]), str(a["name"])
+
+    for a in alive:
+        name = str(a.get("name") or "")
+        if any(name.startswith(p) for p in fallback_prefixes):
+            return int(a["id"]), name
+
+    return None, None
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="Download latest Actions artifact by name (ZIP extract).")
-    p.add_argument("artifact_name", help="Exact artifact name, e.g. mma-json-exports")
+    p = argparse.ArgumentParser(description="Download latest Actions artifact for JSON sync (ZIP extract).")
+    p.add_argument(
+        "artifact_name",
+        help="Exact artifact name, or run-bundle / AUTO = newest weekly-refresh-* / monthly-retrain-*",
+    )
     p.add_argument(
         "extract_to",
         type=Path,
         nargs="?",
         default=Path("_artifact_extract"),
-        help="Directory to extract ZIP contents into (created if missing)",
+        help="Directory to extract ZIP into",
+    )
+    p.add_argument(
+        "--fallback-prefix",
+        action="append",
+        dest="fallback_prefixes",
+        default=None,
+        metavar="PREFIX",
+        help="When exact name missing or artifact_name is run-bundle/AUTO: use newest artifact whose "
+        "name starts with PREFIX (repeatable). Defaults: weekly-refresh- and monthly-retrain-",
     )
     args = p.parse_args()
+
+    prefixes = args.fallback_prefixes
+    if prefixes is None:
+        prefixes = ["weekly-refresh-", "monthly-retrain-"]
 
     repo = os.environ.get("GITHUB_REPOSITORY")
     token = os.environ.get("GITHUB_TOKEN")
@@ -99,36 +163,31 @@ def main() -> int:
         print("GITHUB_REPOSITORY and GITHUB_TOKEN are required", file=sys.stderr)
         return 1
 
-    name = args.artifact_name
-    api = (
-        "https://api.github.com/repos/"
-        + repo
-        + "/actions/artifacts?name="
-        + urllib.parse.quote(name)
-        + "&per_page=50"
-    )
-    req = urllib.request.Request(
-        api,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.load(resp)
+        rows = _fetch_artifact_pages(repo, token)
     except urllib.error.HTTPError as e:
         print(f"::error::Listing artifacts failed: {e}", file=sys.stderr)
         return 1
 
-    arts = [a for a in data.get("artifacts", []) if not a.get("expired")]
-    arts.sort(key=lambda a: a["created_at"], reverse=True)
-    if not arts:
-        print(f"::error::No non-expired artifact named {name!r}", file=sys.stderr)
+    raw = args.artifact_name.strip()
+    exact: Optional[str] = None if raw.casefold() in ("run-bundle", "auto") else raw
+
+    aid, picked_name = _pick_artifact(rows, exact, prefixes)
+    if aid is None or picked_name is None:
+        if exact is None:
+            print(
+                f"::error::No non-expired artifact matching prefixes {prefixes!r}. "
+                "Run weekly/monthly CI first.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"::error::No usable artifact: exact {exact!r} or prefixes {prefixes!r} "
+                "(non-expired). Run weekly/monthly CI first.",
+                file=sys.stderr,
+            )
         return 1
 
-    aid = arts[0]["id"]
     extract_to = Path(args.extract_to).resolve()
     extract_to.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +202,7 @@ def main() -> int:
         zf.extractall(extract_to)
     tmp.unlink(missing_ok=True)
 
-    print(f"Extracted artifact id {aid} ({name}) -> {extract_to}")
+    print(f"Extracted artifact id {aid} ({picked_name}) -> {extract_to}")
     return 0
 
 
