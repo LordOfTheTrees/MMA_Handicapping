@@ -29,7 +29,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from curl_cffi import requests
+from curl_cffi import CurlHttpVersion, requests
 
 from src.data.loader import METHOD_MAP, WEIGHT_CLASS_MAP
 
@@ -78,10 +78,12 @@ def fetch_soup(
     *,
     referer: Optional[str] = None,
 ) -> BeautifulSoup:
+    # HTTP/2 on some runners (e.g. GitHub Actions) hits libcurl error 16 / framing issues with UFCStats.
     kwargs = {
         "timeout": 60,
         "impersonate": BROWSER_IMPERSONATE,
         "allow_redirects": True,
+        "http_version": CurlHttpVersion.V1_1,
     }
     if referer:
         kwargs["referer"] = referer
