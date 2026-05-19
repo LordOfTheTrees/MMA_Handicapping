@@ -73,7 +73,8 @@ jobs:
 
       - name: Refresh pipeline (ELO + matrix, keep W)
         if: steps.restore_state.outputs.seed == 'true'
-        run: python scripts/weekly_update.py refresh --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports
+        # Script defaults to refresh_data(); avoid double scrape after step above.
+        run: python scripts/weekly_update.py refresh --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports --no-scrape
 
       - name: Cold start — full train (no prior pickle)
         if: steps.restore_state.outputs.seed != 'true'
@@ -100,3 +101,11 @@ jobs:
             data/upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn
+
+      # Stable name for workflow ``sync-json-to-mma-ai`` (latest wins).
+      - name: Upload mma-json-exports (sync to mma.ai)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mma-json-exports
+          path: JSON_exports/
+          if-no-files-found: error

@@ -1,0 +1,119 @@
+# Sync the latest CI ``JSON_exports`` bundle into the ``mma.ai`` repo (HTTPS + PAT).
+#
+# Runs after **Weekly model refresh** / **Monthly model retrain** succeed on the default branch,
+# or manually via **Run workflow**.
+#
+# Prerequisites:
+# 1. Weekly / monthly workflows upload artifact ``mma-json-exports``.
+# 2. Repo secret ``MMA_AI_SYNC_PAT``: PAT with ``contents: write`` on ``mma.ai``.
+#
+# Defaults for automated runs: ``LordOfTheTrees/mma.ai`` + ``mma-json-exports``.
+# Manual dispatch can override repo / artifact name.
+
+name: Sync JSON exports to mma.ai
+
+on:
+  workflow_dispatch:
+    inputs:
+      mma_ai_repo:
+        description: Target repo (owner/name)
+        required: true
+        default: LordOfTheTrees/mma.ai
+        type: string
+      artifact_name:
+        description: Artifact name to download (from weekly/monthly CI uploads)
+        required: true
+        default: mma-json-exports
+        type: string
+
+  workflow_run:
+    workflows:
+      - Weekly model refresh
+      - Monthly model retrain (bootstrap)
+    types:
+      - completed
+
+concurrency:
+  group: sync-mma-ai-json
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.head_branch == github.event.repository.default_branch
+      )
+
+    env:
+      ARTIFACT_NAME: ${{ inputs.artifact_name || 'mma-json-exports' }}
+      MMA_AI_REPO: ${{ inputs.mma_ai_repo || 'LordOfTheTrees/mma.ai' }}
+      TRIGGER_LABEL: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name || 'manual' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_download_latest_artifact.py "$ARTIFACT_NAME" ./_ci_json
+
+      - name: Resolve JSON_exports folder
+        id: paths
+        run: |
+          if [ -d "./_ci_json/JSON_exports" ]; then
+            echo "src=${{ github.workspace }}/_ci_json/JSON_exports" >> "$GITHUB_OUTPUT"
+          else
+            found=$(find ./_ci_json -type d -name JSON_exports 2>/dev/null | head -1)
+            if [ -z "$found" ]; then
+              echo "::error::No JSON_exports directory inside artifact; layout changed?"
+              ls -laR ./_ci_json || true
+              exit 1
+            fi
+            echo "src=$found" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout mma.ai
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MMA_AI_REPO }}
+          token: ${{ secrets.MMA_AI_SYNC_PAT }}
+          path: mma-ai-checkout
+
+      - name: Copy JSON into artifacts/
+        run: |
+          set -euo pipefail
+          DEST="${{ github.workspace }}/mma-ai-checkout/artifacts"
+          SRC="${{ steps.paths.outputs.src }}"
+          mkdir -p "$DEST"
+          shopt -s nullglob
+          files=("$SRC"/*.json)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No *.json under $SRC"
+            ls -la "$SRC" || true
+            exit 1
+          fi
+          cp "${files[@]}" "$DEST/"
+          echo "Copied ${#files[@]} file(s):"
+          ls -la "$DEST"/*.json
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          cd "${{ github.workspace }}/mma-ai-checkout"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/*.json
+          if git diff --staged --quiet; then
+            echo "No changes to inference JSON; skipping push."
+            exit 0
+          fi
+          git commit -m "chore(artifacts): sync inference JSON (${TRIGGER_LABEL}; ${ARTIFACT_NAME})"
+          git push origin HEAD

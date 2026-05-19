@@ -122,7 +122,7 @@ Production loads these from **`mma.ai/artifacts/`** (same filenames). Do **not**
 
 ### Weekly refresh (new fights, frozen regression **W**)
 
-After updating CSVs under **`data/`**, rebuild ELO + training-matrix-derived JSON **without** L-BFGS/bootstrap (pickle **W** unchanged):
+By default **`weekly_update`** runs **`refresh_data()`** first (re-scrape UFCStats fights + profiles + **`upcoming_cards.json`** under **`data/`**), then rebuilds ELO + training-matrix-derived JSON **without** L-BFGS/bootstrap (pickle **W** unchanged). Use **`--no-scrape`** only if CSVs are already current.
 
 ```bash
 python scripts/weekly_update.py refresh --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
@@ -132,13 +132,25 @@ This reloads data, runs **`build_elo`**, **`train_regression(fit_model=False)`**
 
 ### Full retrain (new **W** + export)
 
-Refit multinomial regression, save pickle, then export (**step 6** + same five JSONs). **Hyperparameters stay frozen:** the run uses the **`Config` inside your pickle** (λ, Huber δ, L-BFGS limits, bootstrap seed/count, ELO knobs, holdout cut, …). This path **does not** re-explore hyperparameters (no Phase‑3 / walk-forward search); it only re-optimizes **regression weights `W`** (and bootstrap coefficient draws for CIs) on the current training matrix. Deliberate hyperparameter changes belong in a separate tuning / frozen-winner workflow.
+Same **default scrape** as **`refresh`** (**`refresh_data()`** unless **`--no-scrape`**). Refit multinomial regression, save pickle, then export (**step 6** + same five JSONs). **Hyperparameters stay frozen:** the run uses the **`Config` inside your pickle** (λ, Huber δ, L-BFGS limits, bootstrap seed/count, ELO knobs, holdout cut, …). This path **does not** re-explore hyperparameters (no Phase‑3 / walk-forward search); it only re-optimizes **regression weights `W`** (and bootstrap coefficient draws for CIs) on the current training matrix. Deliberate hyperparameter changes belong in a separate tuning / frozen-winner workflow.
 
 ```bash
 python scripts/weekly_update.py retrain --model-path ./data/model.pkl --data-dir ./data --out-dir ./JSON_exports
 ```
 
 Optional: **`--copy-to-mma-ai`** and **`--as-of-date YYYY-MM-DD`** on either subcommand (same semantics as **`export_artifacts.py`**).
+
+### GitHub Actions (CI → `mma.ai`)
+
+Workflows under **[`.github/workflows/`](.github/workflows/)** run on GitHub-hosted runners:
+
+| Workflow | Role |
+|----------|------|
+| **`weekly-model-refresh`** | Scheduled Mondays (~03:00 EST → 08:00 UTC); restores **`mma-model-state`**, scrapes UFCStats, **`weekly_update refresh`** (with **`--no-scrape`** after the scrape step). Skips when UTC day is the 1st (monthly owns that slot). |
+| **`monthly-model-retrain`** | Scheduled 1st of month 08:00 UTC; scrape + **`weekly_update retrain`**. |
+| **`sync-json-to-mma-ai`** | After weekly/monthly **succeed** on the default branch **or** manual **Run workflow**: downloads **`mma-json-exports`**, commits **`artifacts/*.json`** on **`mma.ai`**. Requires repo secret **`MMA_AI_SYNC_PAT`** (HTTPS PAT with **Contents: Read and write** on **`mma.ai`**). |
+
+Weekly/monthly upload **`mma-json-exports`** (stable name) plus run-specific bundles. Pull artifacts from the Actions UI or let **`sync-json-to-mma-ai`** push to **`mma.ai`**. Full checklist: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md)**.
 
 ### One-time / repeat: full manual sequence
 

@@ -53,7 +53,8 @@ jobs:
 
       - name: Full retrain + bootstrap + export
         if: steps.restore_state.outputs.seed == 'true'
-        run: python scripts/weekly_update.py retrain --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports
+        # Script defaults to refresh_data(); avoid double scrape after step above.
+        run: python scripts/weekly_update.py retrain --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports --no-scrape
 
       - name: Cold start — full train + export (no prior pickle)
         if: steps.restore_state.outputs.seed != 'true'
@@ -78,3 +79,10 @@ jobs:
             data/upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn
+
+      - name: Upload mma-json-exports (sync to mma.ai)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mma-json-exports
+          path: JSON_exports/
+          if-no-files-found: error

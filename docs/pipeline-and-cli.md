@@ -238,9 +238,11 @@ The deploy repo loads **six JSON files** from **`mma.ai/artifacts/`** (no pickle
 
 | Script | Role |
 |--------|------|
-| [`scripts/weekly_update.py`](../scripts/weekly_update.py) | Weekly operator path: reload data, `build_elo`, `train_regression` (refresh or full refit), export five JSONs, optional pickle update |
+| [`scripts/weekly_update.py`](../scripts/weekly_update.py) | Operator path: **`refresh_data()`** by default (UFCStats scrape; **`--no-scrape`** to skip), reload **`data/`**, `build_elo`, `train_regression` (refresh or full refit), export five JSONs, optional pickle update |
 | [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json`, `reference_distributions.json` |
 | [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) | `data/upcoming_cards.json` to `upcoming_events.json` |
 | [`scripts/copy_exports_to_mma_ai.py`](../scripts/copy_exports_to_mma_ai.py) | Copy folder of `*.json` into sibling `mma.ai/artifacts` |
+
+**GitHub Actions:** **[`.github/workflows/weekly-model-refresh.yml`](../.github/workflows/weekly-model-refresh.yml)** and **`monthly-model-retrain.yml`** produce **`JSON_exports/`** and upload artifact **`mma-json-exports`**. **[`sync-json-to-mma-ai.yml`](../.github/workflows/sync-json-to-mma-ai.yml)** runs when those complete successfully on the default branch (or on manual dispatch) and pushes JSON into **`mma.ai`** using secret **`MMA_AI_SYNC_PAT`**. Details: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md)**.
 
 Populate **`data/upcoming_cards.json`** with **`python -m src.data.ufcstats_upcoming --data-dir ./data`** or via **`refresh_data()`** (**`train --full-rebuild`**). Checklist vs **`mma.ai`**: **`docs/BACKEND_PIPELINE_INTEGRATION.md`**. **Harness:** **`python scripts/run_harness.py`** (`quick`, **`site`** = `JSON_exports` vs **`docs/website_elements.md`**, `integration`, default full `discover`). Snapshot inference [`src/export/json_inference.py`](../src/export/json_inference.py) reproduces **`predict_proba_point_only`** from the four inference JSONs when **`fight_date` == `as_of_date`**. **`data/model.pkl`** vs **`MMA_HARNESS_MODEL`**: **`docs/BACKEND_PIPELINE_INTEGRATION.md`** (Harness).

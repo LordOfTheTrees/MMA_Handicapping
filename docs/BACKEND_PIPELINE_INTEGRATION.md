@@ -30,6 +30,26 @@ python scripts/copy_exports_to_mma_ai.py --src ./JSON_exports
 
 Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-artifacts-dir PATH`**) on the export scripts.
 
+### CI artifacts → local **`mma.ai`** (summary)
+
+**GitHub Actions** (`weekly-model-refresh`, `monthly-model-retrain`) upload:
+
+| Artifact | Contents |
+|----------|-----------|
+| **`mma-model-state`** | **`data/model.pkl`** for the next CI run |
+| **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** | **`JSON_exports/`**, key **`data/*.csv`**, **`upcoming_cards.json`** |
+| **`mma-json-exports`** | Stable-name snapshot of **`JSON_exports/`** only — used by **[`sync-json-to-mma-ai.yml`](../.github/workflows/sync-json-to-mma-ai.yml)** |
+
+**After you download an artifact zip locally:** unzip and point **`--src`** at the folder that contains the five inference **`*.json`** files (usually **`JSON_exports/`** inside the bundle). From **`MMA_Handicapping` repo root**:
+
+```bash
+python scripts/copy_exports_to_mma_ai.py --src "/path/to/unzipped/JSON_exports"
+```
+
+Default **`--dest`** is sibling **`../mma.ai/artifacts`** (override with **`--dest`** if needed).
+
+**Automated push:** **`sync-json-to-mma-ai.yml`** runs automatically after **Weekly model refresh** / **Monthly model retrain** succeed on the default branch (downloads **`mma-json-exports`**). You can still **Run workflow** manually. Requires secret **`MMA_AI_SYNC_PAT`** (contents write on **`mma.ai`**). Only copies what was in **`JSON_exports/`** at upload time (**`upcoming_events.json`** is included only if you generated it into **`JSON_exports/`** before CI packaged the artifact).
+
 ---
 
 ## Harness (pickle vs JSON snapshot)
@@ -101,7 +121,7 @@ Entry points:
 
 | Script | Output |
 |--------|--------|
-| **`scripts/weekly_update.py`** | Operator path: reload **`data/`**, **`build_elo`**, **`train_regression`** (`refresh` keeps regression **W**; `retrain` refits), write five JSONs, optional pickle update — see **`README.md`**. |
+| **`scripts/weekly_update.py`** | Operator path: **`refresh_data()`** by default (scrape; **`--no-scrape`** to skip), reload **`data/`**, **`build_elo`**, **`train_regression`** (`refresh` keeps regression **W**; `retrain` refits), write five JSONs, optional pickle update — see **`README.md`**. |
 | **`scripts/export_artifacts.py`** | Pickle only → same five inference JSONs (no data reload); optional **`--rebuild-elo-for-trajectories`**. |
 | **`scripts/export_upcoming_events.py`** | **`upcoming_events.json`** |
 | **`scripts/copy_exports_to_mma_ai.py`** | Copies **`*.json`** into **`mma.ai/artifacts/`** |
@@ -122,8 +142,8 @@ Details:
 
 ## Phase 2 — Hand off JSON to **mma.ai**
 
-1. Drop files into **`mma.ai/artifacts/`** (PR, deploy hook, or copy).
-2. Optional: GitHub Action **here** that opens PRs against **`mma.ai`** when a model tag bumps.
+1. Drop files into **`mma.ai/artifacts/`** (manual copy, **`scripts/copy_exports_to_mma_ai.py`**, or CI artifact unzip — see **CI artifacts → local mma.ai** above).
+2. **`sync-json-to-mma-ai.yml`** pushes the latest **`mma-json-exports`** after weekly/monthly CI succeeds (or run it manually) — needs **`MMA_AI_SYNC_PAT`**.
 3. Never ship pickles, **`data/`** CSV blobs, or `src/` into the web image — JSON only (`mma.ai/docs/training-repo.md`).
 
 ---

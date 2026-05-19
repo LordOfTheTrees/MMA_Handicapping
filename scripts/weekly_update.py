@@ -23,6 +23,11 @@ Usage (repo root)::
     python scripts/weekly_update.py refresh
     python scripts/weekly_update.py retrain
 
+By default each run calls ``refresh_data()`` first (re-scrape UFCStats fights CSV, fighter profiles,
+and ``upcoming_cards.json`` under ``--data-dir``). Use ``--no-scrape`` only when CSVs are already
+current (e.g. offline replay). GitHub Actions keeps a separate scrape step and passes ``--no-scrape``
+here so data is not fetched twice.
+
 Defaults: ``model.pkl`` under ``<repo>/data/``, data dir ``<repo>/data``, JSON out ``<repo>/JSON_exports``.
 Override with ``--model-path``, ``--data-dir``, ``--out-dir`` as needed.
 
@@ -44,7 +49,16 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import export_artifacts as export_artifacts_mod  # noqa: E402
+from src.data.refresh import refresh_data  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
+
+
+def _maybe_refresh_csvs(data_dir: Path, no_scrape: bool, label: str) -> None:
+    if no_scrape:
+        print(f"[weekly_update {label}] skip refresh_data (--no-scrape)", flush=True)
+        return
+    print(f"[weekly_update {label}] refresh_data (UFCStats scrape) ...", flush=True)
+    refresh_data(data_dir)
 
 
 def _copy_to_mma_ai(out_dir: Path, mma_ai_dir: Path | None) -> None:
@@ -62,6 +76,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
+    _maybe_refresh_csvs(data_dir, args.no_scrape, "refresh")
     print(f"[weekly_update refresh] load pickle {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update refresh] load_data {data_dir}", flush=True)
@@ -95,6 +110,7 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
+    _maybe_refresh_csvs(data_dir, args.no_scrape, "retrain")
     print(f"[weekly_update retrain] load pickle (config + warm state) {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update retrain] load_data {data_dir}", flush=True)
@@ -147,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Record per-fight ELO points for fighter_profiles elo_trajectories (default: true)",
+    )
+    common.add_argument(
+        "--no-scrape",
+        action="store_true",
+        help="Skip refresh_data(); use existing CSVs under --data-dir (CI passes this when scrape runs separately).",
     )
 
     sp_r = sub.add_parser("refresh", parents=[common], help="Rebuild ELO + training matrix; keep W from pickle (steps 1–5).")
