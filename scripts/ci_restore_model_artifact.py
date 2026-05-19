@@ -18,12 +18,30 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
 
 
 ARTIFACT_NAME = "mma-model-state"
+
+
+class _RedirectDropAuthorization(urllib.request.HTTPRedirectHandler):
+    """GitHub artifact ZIP URLs 302 to Azure Blob; forwarding ``Authorization`` breaks SAS auth (401)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        purged = {
+            hk: hv
+            for hk, hv in req.header_items()
+            if hk.lower() != "authorization"
+        }
+        return urllib.request.Request(
+            newurl,
+            headers=purged,
+            origin_req_host=req.origin_req_host,
+            unverifiable=True,
+        )
 
 
 def _write_output(seed: str) -> None:
@@ -40,8 +58,11 @@ def main() -> int:
         return 1
 
     api = (
-        f"https://api.github.com/repos/{repo}/actions/artifacts"
-        f"?name={ARTIFACT_NAME}&per_page=30"
+        "https://api.github.com/repos/"
+        + repo
+        + "/actions/artifacts?name="
+        + urllib.parse.quote(ARTIFACT_NAME)
+        + "&per_page=30"
     )
     req = urllib.request.Request(
         api,
@@ -79,8 +100,9 @@ def main() -> int:
     )
 
     tmp = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "mma-model-state.zip"
+    opener = urllib.request.build_opener(_RedirectDropAuthorization())
     try:
-        with urllib.request.urlopen(zip_req) as resp:
+        with opener.open(zip_req, timeout=600) as resp:
             tmp.write_bytes(resp.read())
     except urllib.error.HTTPError as e:
         print(f"::error::Failed to download artifact {aid}: {e}", file=sys.stderr)
