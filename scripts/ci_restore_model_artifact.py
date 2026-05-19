@@ -11,11 +11,18 @@ Environment (GitHub Actions provides these automatically):
 - ``GITHUB_OUTPUT`` — step output file for ``seed=true|false``
 
 Exit codes: ``0`` — restored or cold-start (no artifact); ``1`` — download/unpack error.
+
+Implementation note: GitHub returns a 302 to Azure Blob Storage for artifact ZIPs.
+``urllib`` forwarding GitHub headers (or ``Authorization``) to Azure often yields 401/400.
+We download via ``curl`` when available (drops ``Authorization`` on cross-host redirects),
+else a redirect handler that sends **no** custom headers to the redirect target.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -27,21 +34,55 @@ from pathlib import Path
 ARTIFACT_NAME = "mma-model-state"
 
 
-class _RedirectDropAuthorization(urllib.request.HTTPRedirectHandler):
-    """GitHub artifact ZIP URLs 302 to Azure Blob; forwarding ``Authorization`` breaks SAS auth (401)."""
+class _RedirectBlobSafe(urllib.request.HTTPRedirectHandler):
+    """Follow redirects with a plain GET; no GitHub/Azure-conflicting headers."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        purged = {
-            hk: hv
-            for hk, hv in req.header_items()
-            if hk.lower() != "authorization"
-        }
+        joined = urllib.parse.urljoin(req.full_url, newurl.strip())
         return urllib.request.Request(
-            newurl,
-            headers=purged,
+            joined,
+            method="GET",
+            headers={},
             origin_req_host=req.origin_req_host,
             unverifiable=True,
         )
+
+
+def _download_artifact_zip(repo: str, aid: str, token: str, dest: Path) -> None:
+    url = f"https://api.github.com/repos/{repo}/actions/artifacts/{aid}/zip"
+    if shutil.which("curl"):
+        subprocess.run(
+            [
+                "curl",
+                "-fsSL",
+                "--retry",
+                "3",
+                "--retry-delay",
+                "2",
+                "-H",
+                f"Authorization: Bearer {token}",
+                "-H",
+                "Accept: application/vnd.github+json",
+                "-o",
+                str(dest),
+                url,
+            ],
+            check=True,
+            timeout=600,
+        )
+        return
+
+    zip_req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    opener = urllib.request.build_opener(_RedirectBlobSafe())
+    with opener.open(zip_req, timeout=600) as resp:
+        dest.write_bytes(resp.read())
 
 
 def _write_output(seed: str) -> None:
@@ -73,7 +114,7 @@ def main() -> int:
         },
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.load(resp)
     except urllib.error.HTTPError as e:
         print(f"::error::GitHub API listing artifacts failed: {e}", file=sys.stderr)
@@ -89,22 +130,10 @@ def main() -> int:
         return 0
 
     aid = arts[0]["id"]
-    zip_url = f"https://api.github.com/repos/{repo}/actions/artifacts/{aid}/zip"
-    zip_req = urllib.request.Request(
-        zip_url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-
     tmp = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "mma-model-state.zip"
-    opener = urllib.request.build_opener(_RedirectDropAuthorization())
     try:
-        with opener.open(zip_req, timeout=600) as resp:
-            tmp.write_bytes(resp.read())
-    except urllib.error.HTTPError as e:
+        _download_artifact_zip(repo, str(aid), token, tmp)
+    except (urllib.error.HTTPError, OSError, subprocess.CalledProcessError) as e:
         print(f"::error::Failed to download artifact {aid}: {e}", file=sys.stderr)
         return 1
 
