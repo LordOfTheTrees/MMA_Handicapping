@@ -105,7 +105,7 @@ Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO
 - Trained pickle: e.g. **`data/model.pkl`** (from `python -m src.cli.train ...` — see [Quick usage](#quick-usage)).
 - Optional: **`data/upcoming_cards.json`** — created by a full data refresh or by the upcoming scraper below.
 - Clone layout: default copy targets assume **`mma.ai`** sits **next to** this repo (same parent folder), e.g. `Personal Coding/MMA_Handicapping` and `Personal Coding/mma.ai`. Override paths with flags if yours differs.
-- **`JSON_exports/`** — recommended staging folder for the **`*.json`** artifacts before or after syncing to **`mma.ai`**. It is **not** listed in `.gitignore` so you **can commit** snapshots if desired (unlike **`data/`** and **`*.pkl`**).
+- **`JSON_exports/`** — deploy **`*.json`** for **`mma.ai`** (not gitignored; unlike **`data/`** / **`*.pkl`**). A **committed snapshot** in git is kept as backup when CI scrape is down—refresh it after a successful local or CI export. **`MMA_SITE_EXPORT_DIR`** overrides the path for **`run_harness.py site`**.
 
 **Artifacts**
 
