@@ -130,6 +130,49 @@ def _canonical_ufcstats_http_url(href: str) -> str:
     return f"http://ufcstats.com{path}{query}"
 
 
+@dataclass(frozen=True)
+class IndexProbeResult:
+    event_count: int
+    blocked: bool
+    detail: str
+
+
+def probe_completed_events_index(session: Optional[requests.Session] = None) -> IndexProbeResult:
+    """Fetch the completed-events index once and report bot-wall vs parseable HTML."""
+    sess = session or _session()
+    index_soup = fetch_soup(sess, COMPLETED_EVENTS_URL, referer=f"{BASE}/statistics/events/")
+    if _is_bot_challenge_page(index_soup):
+        return IndexProbeResult(
+            event_count=0,
+            blocked=True,
+            detail="UFCStats returned a bot-challenge page (Cloudflare).",
+        )
+    n = len(iter_completed_event_urls(index_soup))
+    if n == 0:
+        return IndexProbeResult(
+            event_count=0,
+            blocked=False,
+            detail="Completed-events index parsed but contained 0 event-details links.",
+        )
+    return IndexProbeResult(event_count=n, blocked=False, detail=f"{n} completed events in index.")
+
+
+def _is_bot_challenge_page(soup: BeautifulSoup) -> bool:
+    """True when UFCStats serves a Cloudflare / JS challenge instead of event HTML."""
+    title = (soup.title.string or "").strip() if soup.title else ""
+    if title.startswith("Loading"):
+        return True
+    text = soup.get_text(" ", strip=True).lower()
+    return "checking your browser" in text or "this site requires javascript" in text
+
+
+def _count_csv_data_rows(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    with open(path, newline="", encoding="utf-8") as f:
+        return sum(1 for _ in csv.DictReader(f))
+
+
 def iter_completed_event_urls(soup: BeautifulSoup) -> List[str]:
     urls: List[str] = []
     seen: set[str] = set()
@@ -684,6 +727,28 @@ def scrape_ufcstats_fights_to_csv(
     print("Fetching event index ...", flush=True)
     index_soup = fetch_soup(sess, COMPLETED_EVENTS_URL, referer=f"{BASE}/statistics/events/")
     event_urls = iter_completed_event_urls(index_soup)
+    if not event_urls:
+        existing_rows = _count_csv_data_rows(out_path)
+        if _is_bot_challenge_page(index_soup):
+            msg = (
+                "UFCStats returned a bot-challenge page (Cloudflare). "
+                "Scraping from this environment is blocked until impersonation/cookies work again."
+            )
+            if existing_rows > 0:
+                print(
+                    f"::warning::{msg} Keeping existing {out_path} ({existing_rows:,} rows).",
+                    flush=True,
+                )
+                return existing_rows
+            raise RuntimeError(msg)
+        if existing_rows > 0:
+            print(
+                f"::warning::Event index returned 0 URLs; keeping existing {out_path} "
+                f"({existing_rows:,} rows).",
+                flush=True,
+            )
+            return existing_rows
+
     if max_events is not None:
         event_urls = event_urls[:max_events]
 
@@ -767,6 +832,14 @@ def scrape_ufcstats_fights_to_csv(
 
         if max_fights is not None and n_fights >= max_fights:
             break
+
+    existing_rows = _count_csv_data_rows(out_path)
+    if not rows and existing_rows > 0:
+        print(
+            f"::warning::Scrape produced 0 rows; keeping existing {out_path} ({existing_rows:,} rows).",
+            flush=True,
+        )
+        return existing_rows
 
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=CSV_FIELDS)

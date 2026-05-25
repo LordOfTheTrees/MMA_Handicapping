@@ -20,6 +20,17 @@ This file is a **sanity-check journal**: decisions and workflow changes that cam
 
 ---
 
+## GitHub Actions admin (CI scrape + stale fallback)
+
+- **`allow_stale_data`** — Manual **Run workflow** checkbox on **`weekly-model-refresh`** and **`monthly-model-retrain`** (default **false**). **Cron schedules never use it** (always require a live UFCStats scrape).
+- **Normal run (`false`)** — `ci_try_refresh_data.py` only; if UFCStats serves a Cloudflare/bot page, the job fails with a grouped log (`::group::UFCStats scrape blocked`). **Sync JSON exports** does not run (trigger requires **success**).
+- **Admin/debug run (`true`)** — Restores **`data/*.csv`** from the newest **`weekly-refresh-*`** / **`monthly-retrain-*`** artifact (`ci_restore_data_bundle.py`), then `ci_try_refresh_data.py --allow-stale-data` so rebuild/export can proceed without a live scrape. Use when scraping is broken; data will be as old as that bundle.
+- **Scraper guard** — `scrape_ufcstats_fights_to_csv` will not overwrite an existing fights CSV with 0 rows when the index is a bot wall (see `probe_completed_events_index` in [`ufcstats_scraper.py`](../src/data/ufcstats_scraper.py)).
+- **Sync artifact name** — Use **`run-bundle`** (not legacy **`mma-json-exports`**). Full ops write-up: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md)** § GitHub Actions admin.
+- **Local disaster recovery** — Copy-paste restore of **`data/model.pkl`**, Tier‑1 CSVs, and **`JSON_exports/`** from latest CI artifacts: same doc, § **Local disaster recovery (restore last CI build)**.
+
+---
+
 ## Planning and status files
 
 - **[`TODO.md`](../TODO.md)** — Short “next work bout” at repo root; defers deep checklists to **`docs/todo.md`**.

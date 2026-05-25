@@ -146,11 +146,11 @@ Workflows under **[`.github/workflows/`](.github/workflows/)** run on GitHub-hos
 
 | Workflow | Role |
 |----------|------|
-| **`weekly-model-refresh`** | Scheduled Mondays (~03:00 EST → 08:00 UTC); restores **`mma-model-state`**, scrapes UFCStats, **`weekly_update refresh`** (with **`--no-scrape`** after the scrape step). Skips when UTC day is the 1st (monthly owns that slot). |
-| **`monthly-model-retrain`** | Scheduled 1st of month 08:00 UTC; scrape + **`weekly_update retrain`**. |
+| **`weekly-model-refresh`** | Scheduled Mondays (~03:00 EST → 08:00 UTC); restores **`mma-model-state`**, scrapes UFCStats, **`weekly_update refresh`** (with **`--no-scrape`** after the scrape step). Skips when UTC day is the 1st (monthly owns that slot). Manual dispatch: optional **`allow_stale_data`** (admin; default **false**). |
+| **`monthly-model-retrain`** | Scheduled 1st of month 08:00 UTC; scrape + **`weekly_update retrain`**. Manual dispatch: same **`allow_stale_data`** admin toggle. |
 | **`sync-json-to-mma-ai`** | After weekly/monthly **succeed** on the default branch **or** manual **Run workflow**: downloads newest **`weekly-refresh-*`** / **`monthly-retrain-*`** (**`run-bundle`**), commits **`artifacts/*.json`** on **`mma.ai`**. Requires **`MMA_AI_SYNC_PAT`** (HTTPS PAT with **Contents: Read and write** on **`mma.ai`**). |
 
-Weekly/monthly upload **`mma-model-state`** plus run bundles **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** (includes **`JSON_exports/`**). Pull artifacts from the Actions UI or let **`sync-json-to-mma-ai`** push to **`mma.ai`**. Full checklist: **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md)**.
+Weekly/monthly upload **`mma-model-state`** plus run bundles **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** (includes **`JSON_exports/`**). Pull artifacts from the Actions UI or let **`sync-json-to-mma-ai`** push to **`mma.ai`**. **CI admin** (stale fallback, scrape failures, sync): **[`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md)** § GitHub Actions admin. **Restore last good build locally** (pickle + CSVs + JSON): same doc, § **Local disaster recovery**. Catch-up journal: **[`docs/session-changelog-and-catchup.md`](docs/session-changelog-and-catchup.md)**.
 
 ### One-time / repeat: full manual sequence
 

@@ -56,9 +56,11 @@ jobs:
       )
 
     env:
-      ARTIFACT_NAME: ${{ inputs.artifact_name || 'run-bundle' }}
-      MMA_AI_REPO: ${{ inputs.mma_ai_repo || 'LordOfTheTrees/mma.ai' }}
+      # ``inputs`` exists only on workflow_dispatch; workflow_run must default to run-bundle.
+      ARTIFACT_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_name || 'run-bundle' }}
+      MMA_AI_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.mma_ai_repo || 'LordOfTheTrees/mma.ai' }}
       TRIGGER_LABEL: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.name || 'manual' }}
+      TRIGGERING_WORKFLOW_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +68,7 @@ jobs:
       - name: Download latest artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TRIGGERING_WORKFLOW_RUN_ID: ${{ env.TRIGGERING_WORKFLOW_RUN_ID }}
         run: python scripts/ci_download_latest_artifact.py "$ARTIFACT_NAME" ./_ci_json
 
       - name: Resolve JSON_exports folder

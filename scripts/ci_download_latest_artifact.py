@@ -6,12 +6,11 @@ Used by ``sync-json-to-mma-ai``. Uses ``curl`` for the ZIP URL so Azure redirect
 
 Selection order:
 
-1. If ``artifact_name`` is ``run-bundle`` or ``AUTO`` (case-insensitive): skip exact match; pick the
-   newest non-expired artifact whose name starts with any ``--fallback-prefix`` (default:
-   ``weekly-refresh-``, ``monthly-retrain-``) — these are the CI **run bundles** that include
-   ``JSON_exports/``.
-2. Otherwise: prefer newest artifact whose **name equals** ``artifact_name``; if none, same prefix
-   fallback as above.
+1. If ``artifact_name`` is ``run-bundle``, ``AUTO``, or legacy ``mma-json-exports`` (case-insensitive):
+   skip exact match; pick the newest non-expired artifact whose name starts with any
+   ``--fallback-prefix`` (default: ``weekly-refresh-``, ``monthly-retrain-``).
+2. If env ``TRIGGERING_WORKFLOW_RUN_ID`` is set (``workflow_run`` sync), prefer bundles from that run.
+3. Otherwise: prefer newest artifact whose **name equals** ``artifact_name``; if none, prefix fallback.
 
 CLI::
 
@@ -112,9 +111,22 @@ def _pick_artifact(
     rows: List[dict[str, Any]],
     exact_name: Optional[str],
     fallback_prefixes: List[str],
+    *,
+    workflow_run_id: Optional[int] = None,
 ) -> Tuple[Optional[int], Optional[str]]:
     alive = [a for a in rows if not a.get("expired")]
     alive.sort(key=lambda a: a["created_at"], reverse=True)
+
+    if workflow_run_id is not None:
+        for a in alive:
+            wr = a.get("workflow_run") or {}
+            if wr.get("id") != workflow_run_id:
+                continue
+            name = str(a.get("name") or "")
+            if exact_name and name == exact_name:
+                return int(a["id"]), name
+            if any(name.startswith(p) for p in fallback_prefixes):
+                return int(a["id"]), name
 
     if exact_name:
         for a in alive:
@@ -170,9 +182,19 @@ def main() -> int:
         return 1
 
     raw = args.artifact_name.strip()
-    exact: Optional[str] = None if raw.casefold() in ("run-bundle", "auto") else raw
+    # Legacy workflows used ``mma-json-exports``; bundles are ``weekly-refresh-*`` / ``monthly-retrain-*``.
+    if raw.casefold() in ("run-bundle", "auto", "mma-json-exports"):
+        exact = None
+    else:
+        exact = raw
 
-    aid, picked_name = _pick_artifact(rows, exact, prefixes)
+    trigger_run_id = os.environ.get("TRIGGERING_WORKFLOW_RUN_ID", "").strip()
+    aid, picked_name = _pick_artifact(
+        rows,
+        exact,
+        prefixes,
+        workflow_run_id=int(trigger_run_id) if trigger_run_id.isdigit() else None,
+    )
     if aid is None or picked_name is None:
         if exact is None:
             print(

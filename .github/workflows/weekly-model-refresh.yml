@@ -12,6 +12,13 @@ name: Weekly model refresh
 
 on:
   workflow_dispatch:
+    inputs:
+      allow_stale_data:
+        description: >-
+          Admin/debug: restore last run bundle and rebuild if UFCStats scrape is blocked.
+          Leave false for normal runs. Ignored on schedule (always requires live scrape).
+        type: boolean
+        default: false
   schedule:
     - cron: "0 8 * * 1"
 
@@ -68,8 +75,20 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/ci_restore_model_artifact.py
 
-      - name: Scrape UFCStats → refresh CSVs
-        run: python -c "from pathlib import Path; from src.data.refresh import refresh_data; refresh_data(Path('data'))"
+      - name: Restore data CSVs from last run bundle
+        if: >-
+          github.event_name == 'workflow_dispatch' && inputs.allow_stale_data == true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_restore_data_bundle.py
+
+      - name: Refresh UFCStats data
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_stale_data }}" = "true" ]; then
+            python scripts/ci_try_refresh_data.py --allow-stale-data
+          else
+            python scripts/ci_try_refresh_data.py
+          fi
 
       - name: Refresh pipeline (ELO + matrix, keep W)
         if: steps.restore_state.outputs.seed == 'true'

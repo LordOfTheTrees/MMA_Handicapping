@@ -10,9 +10,40 @@ This file is the **human-facing roadmap**: **next work** in order and high-level
 
 **Deferred (optional):** Tier 2–3 promotion CSVs, pedigree manual fill, one-off holdout OAT from [`docs/todo.md`](docs/todo.md) §3.3 when comparing single-knob ablations, CI / `elo_mc_*` spot checks.
 
+**CI / scrape ops (documented):** [`docs/BACKEND_PIPELINE_INTEGRATION.md`](docs/BACKEND_PIPELINE_INTEGRATION.md) § GitHub Actions admin; local restore: § **Local disaster recovery**.
+
 ---
 
-## Next work bout (in order)
+## Most important (blocking data + CI)
+
+Do these before treating weekly refresh or new modeling work as “healthy.” Detail and checklists: [`docs/todo.md`](docs/todo.md) § **P0 — Scrape recovery & incremental data**.
+
+### 1. Fix the re-scrape problem (multiple paths)
+
+UFCStats completed-events scrape is **blocked** from CI/GitHub (and often locally) by a Cloudflare bot wall — full re-scrape writes **0 rows** and breaks the pipeline. Pursue **more than one** path; keep what works in parallel.
+
+| Path | Role |
+|------|------|
+| **A. UFCStats + HTTP** | Restore reliable access (`curl_cffi` / headers / session / newer impersonation); still the source of **finished-fight totals** for training. |
+| **B. Official UFC site** | Ingest **upcoming** cards and bout matchups from **ufc.com** (or UFC’s public event pages) for the calendar / `upcoming_events.json` path — does **not** replace historical fight stats unless we add a separate results feed. Complements [`src/data/ufcstats_upcoming.py`](src/data/ufcstats_upcoming.py) (today: UFCStats upcoming only). |
+| **C. Alternate finished-fight source** | Sherdog / other tier-2/3 CSVs, or manual gap-fill for **new** fights only if UFCStats stays blocked. |
+| **D. Bridge (now)** | CI **`allow_stale_data`** + artifact restore; local **disaster recovery** script bundle — unblocks export/retrain on **last good** snapshot until A–C land. |
+
+**Success:** scheduled weekly/monthly can complete **without** admin stale mode when new fights need to land in **`ufcstats_fights.csv`**.
+
+### 2. Stop re-scraping the same data every run (incremental stitch)
+
+Today a “refresh” rediscovers **~770 events** and re-fetches thousands of fight pages (~hours). Target behavior:
+
+1. **Seed** CI (and local refresh) from **existing artifacts**: `mma-model-state`, run-bundle CSVs (`ufcstats_fights.csv`, profiles, `upcoming_cards.json`) — see disaster-recovery doc.
+2. **Incremental ingest**: maintain inventory / max `fight_id` or last event date; fetch **only new** events and fight-detail pages; **append** rows (and **new** profile IDs only).
+3. **Upload** updated bundle after success so the next run seeds again — no cold full scrape unless explicitly requested.
+
+**Success:** typical weekly job time scales with **new fights since last run**, not full history.
+
+---
+
+## Next work bout (after P0 scrape items)
 
 1. **Case studies and examples** — Pristine and selection slices in **`data/phase3_eval/phase3_report.json`** (per–weight-class). Pull **highest per-fight log-loss** fights for write-ups; see [`docs/hyperparameter-tuning.md`](docs/hyperparameter-tuning.md) §9.
 2. **Fight odds + stake / P&L research** — Historical **opening** or **pre-bell** / **closing** odds (per fight, PIT) to test **stake** / ROI vs model probabilities (Kelly, flat stake, **EV-based** filter per **ADR-21**). **Blocked** until a **reproducible lines** data source exists; model metrics alone do not prove profitability.
@@ -40,7 +71,7 @@ python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 
 ## High level — strategic themes
 
-1. **Data refresh cadence** — Full UFCStats fights scrape is **several hours** (~770 events + fights; README). Re-run after parser or schema changes; profiles after the fights file stabilizes.
+1. **Data refresh cadence** — **P0:** incremental stitch + scrape recovery (above). Until then, full UFCStats fights scrape is **several hours** (~770 events + fights) when it works at all; re-run full only after parser/schema changes or explicit `--full-rescrape`.
 2. **Validation before tuning** — Log-loss and era knobs come **after** “train runs, predict runs, symmetry holds.”
 3. **Cheap A/B before expensive search** — **50-trial/yr** walk-forward is a **reference**, not a weekly habit. Baseline walk-forward, **10–20 trials**, or a **shorter** selection window should agree **in spirit** (stable ranking) before another long wall-clock run.
 4. **Hardening** — Harness + export parity + site-page JSON checks in repo; widen tests as needed.

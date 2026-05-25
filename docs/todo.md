@@ -5,10 +5,45 @@ Steps are ordered chronologically. Detail decreases the further out they are.
 
 ### Roadmap vs this doc
 
-- **[`TODO.md`](../TODO.md)** — **Current status** (what is implemented), **next work bout** (ordered immediate steps), and the UFCStats scrape skip / `ufcstats_gap_report` log. Read that first for “where we are / what to do next.”
-- **This file** — Column specs, phased checklists (Phase 1–5), and deeper validation / tuning notes.
+- **[`TODO.md`](../TODO.md)** — **Most important (P0)** scrape recovery + incremental data, then **next work bout**, status, and gap-report notes. Read that first.
+- **This file** — P0 checklists (below), column specs, phased checklists (Phase 1–5), validation / tuning notes.
 
 **Gate:** Phase 2 (below) is the next **milestone** once refreshed `ufcstats_fights.csv` (or legacy `tier1_ufcstats.csv`) and `fighter_profiles.csv` are in `data/`. Phase 3+ assumes Phase 2 smoke tests pass.
+
+**Priority order:** [`TODO.md`](../TODO.md) § **Most important** — scrape recovery + incremental data **before** case studies, odds research, or another long Phase 3 search.
+
+---
+
+## P0 — Scrape recovery & incremental data
+
+*Blocking weekly CI and trustworthy refresh. Mirrors [`TODO.md`](../TODO.md) § Most important.*
+
+### P0.1 Fix re-scrape (UFCStats blocked + alternates)
+
+**Problem:** `probe_completed_events_index` / full scrape often get a Cloudflare “Checking your browser” page → **0 events** → empty or stale `ufcstats_fights.csv`. See [`tests/test_ufcstats_bot_challenge.py`](../tests/test_ufcstats_bot_challenge.py).
+
+**Paths (pursue in parallel):**
+
+- [ ] **UFCStats HTTP** — Restore completed-events + fight-details access from CI and laptop (`curl_cffi`, cookies, impersonation updates, or approved proxy if needed).
+- [ ] **UFC.com (official) upcoming** — New or extended ingest for **scheduled** cards/bouts (names, ids, weight class) for **`upcoming_cards.json`** / **`upcoming_events.json`**. Training CSVs stay separate (**ADR-23**). Does not by itself fix historical fight **stats**.
+- [ ] **Supplemental finished-fight source** — Optional tier-2/3 or manual CSV for **new** results only if UFCStats remains blocked.
+- [x] **Bridge** — `ci_restore_*` scripts, **`allow_stale_data`** on manual workflow dispatch, scraper guard against wiping non-empty CSV on bot wall; [`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md) disaster recovery.
+
+**Done when:** default scheduled weekly refresh completes with **live** new rows (no admin stale toggle).
+
+### P0.2 Incremental refresh (seed artifacts + append new fights)
+
+**Problem:** Every refresh rediscovers all completed events and re-fetches every fight page (hours). CI re-downloads nothing by default and re-scrapes from scratch.
+
+**Target design:**
+
+- [ ] **CI seed step (default)** — Always restore `mma-model-state` + run-bundle CSVs before scrape (not only `allow_stale_data`). Documented in disaster recovery; wire into weekly/monthly workflows as the normal path.
+- [ ] **Event / fight inventory** — Persist last-seen event URLs or max `fight_date` / fight ids (extend [`ufcstats_gap_report`](../src/data/ufcstats_gap_report.py) / `tier1_inventory` ideas) so scrape iterates **new** events only.
+- [ ] **Append-only fights CSV** — `scrape_ufcstats_fights_to_csv` merges new rows into existing file; dedupe by `fight_id`.
+- [ ] **Profiles: new IDs only** — `scrape_fighter_profiles_to_csv` skips ids already present in `fighter_profiles.csv`.
+- [ ] **Artifact forward** — After success, upload bundle + pickle so next run seeds again (already partially true; align with incremental scrape).
+
+**Done when:** typical weekly wall time is dominated by **delta** since last successful artifact, not full history.
 
 ---
 

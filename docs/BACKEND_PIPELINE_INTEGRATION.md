@@ -49,6 +49,88 @@ Default **`--dest`** is sibling **`../mma.ai/artifacts`** (override with **`--de
 
 **Automated push:** **`sync-json-to-mma-ai.yml`** runs after weekly/monthly **succeed** on the default branch (downloads newest **`weekly-refresh-*`** / **`monthly-retrain-*`** artifact via **`run-bundle`**). Manual **Run workflow** still works. Requires **`MMA_AI_SYNC_PAT`**. Only copies what was in **`JSON_exports/`** at upload time (**`upcoming_events.json`** only if generated into **`JSON_exports/`** before packaging).
 
+### GitHub Actions admin
+
+Record of operator controls and failure modes for **[`weekly-model-refresh.yml`](../.github/workflows/weekly-model-refresh.yml)**, **[`monthly-model-retrain.yml`](../.github/workflows/monthly-model-retrain.yml)**, and **[`sync-json-to-mma-ai.yml`](../.github/workflows/sync-json-to-mma-ai.yml)**.
+
+#### `allow_stale_data` (manual dispatch only)
+
+| Setting | When | Behavior |
+|---------|------|----------|
+| **`false`** (default) | Normal **Run workflow** | Live UFCStats scrape required. No restore of prior run-bundle CSVs. |
+| **`true`** | Admin/debug when scrape is broken | Restores **`data/ufcstats_fights.csv`**, **`fighter_profiles.csv`**, **`upcoming_cards.json`** from the newest non-expired **`weekly-refresh-*`** or **`monthly-retrain-*`** artifact, then runs scrape step with **`--allow-stale-data`**. Pipeline rebuild/export can complete on **stale** inputs. |
+
+**Scheduled** Monday / 1st-of-month runs do **not** expose this input; they always follow the **`false`** path (strict scrape).
+
+**Steps involved when `true`:**
+
+1. `python scripts/ci_restore_data_bundle.py` (needs `GITHUB_TOKEN` / `actions: read`)
+2. `python scripts/ci_try_refresh_data.py --allow-stale-data`
+
+#### Scrape failure (UFCStats bot wall)
+
+UFCStats may return a Cloudflare “Checking your browser” page instead of the completed-events index. Symptoms in logs:
+
+- `Fetching event index ...` then immediate finish
+- `Index probe: UFCStats returned a bot-challenge page (Cloudflare).`
+- `::group::UFCStats scrape blocked` / `::error::...`
+
+With **`allow_stale_data: false`**, the refresh/retrain job **fails**; no new run bundle is uploaded.
+
+The scraper (**[`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py)**) refuses to replace an existing non-empty **`ufcstats_fights.csv`** with an empty file when the index is blocked.
+
+#### Sync after failed refresh
+
+**`sync-json-to-mma-ai`** triggers on **`workflow_run` completed** but the job runs only when the upstream workflow **`conclusion == success`**. A failed weekly/monthly run produces a **skipped** sync — **`mma.ai`** keeps the last successful push.
+
+You can still **manually** run **Sync JSON exports** with **`artifact_name: run-bundle`** to republish the newest stored bundle (which may be weeks old). That does not re-run the model; it only copies JSON from the artifact zip.
+
+#### Sync artifact selection
+
+- Prefer **`run-bundle`** (newest **`weekly-refresh-*`** / **`monthly-retrain-*`**).
+- Legacy name **`mma-json-exports`** is aliased to **`run-bundle`** in **`scripts/ci_download_latest_artifact.py`** (that standalone artifact upload was removed May 2026).
+- On **`workflow_run`** sync, **`TRIGGERING_WORKFLOW_RUN_ID`** prefers the bundle from the workflow that just finished (when present).
+
+#### Secrets and artifacts
+
+| Item | Notes |
+|------|--------|
+| **`MMA_AI_SYNC_PAT`** | PAT with **Contents: write** on **`mma.ai`** for sync push |
+| **`mma-model-state`** | Pickle forwarded between weekly/monthly runs |
+| **Run bundles** | Expire per GitHub retention; stale fallback quality depends on newest non-expired bundle |
+
+#### Local disaster recovery (restore last CI build)
+
+Use when a laptop is fresh, **`data/`** was wiped, or UFCStats scraping is broken but you still need the **last good** pickle, Tier‑1 CSVs, and deploy JSONs. Pulls the newest non-expired **`mma-model-state`** and **`weekly-refresh-*`** / **`monthly-retrain-*`** artifacts (same selection as **`run-bundle`**).
+
+**Prerequisites:** [`gh`](https://cli.github.com/) logged in (`gh auth login`), repo root, deps installed (`pip install -r requirements.txt`).
+
+```bash
+cd /path/to/MMA_Handicapping
+export GITHUB_REPOSITORY=LordOfTheTrees/MMA_Handicapping   # or your fork
+export GITHUB_TOKEN="$(gh auth token)"
+
+python scripts/ci_restore_model_artifact.py      # -> data/model.pkl
+python scripts/ci_restore_data_bundle.py         # -> data/ufcstats_fights.csv, fighter_profiles.csv, upcoming_cards.json
+
+python scripts/ci_download_latest_artifact.py run-bundle ./_artifact_restore
+mkdir -p JSON_exports
+cp -a ./_artifact_restore/JSON_exports/*.json JSON_exports/
+rm -rf ./_artifact_restore
+```
+
+**Verify:**
+
+```bash
+python -c "import csv; print('fights', sum(1 for _ in csv.DictReader(open('data/ufcstats_fights.csv'))))"
+ls -lh data/model.pkl JSON_exports/*.json
+python -c "import json; print(json.load(open('JSON_exports/elo_states.json'))['export_manifest'])"
+```
+
+**Work offline** (no scrape): `python scripts/weekly_update.py refresh --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports --no-scrape`
+
+**Note:** `data/` is gitignored (`/data/` in `.gitignore`). Restored files stay local until the next restore or a manual scrape. Artifact expiry follows GitHub Actions retention (check Actions → Artifacts if downloads start failing).
+
 ---
 
 ## Harness (pickle vs JSON snapshot)
