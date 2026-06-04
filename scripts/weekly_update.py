@@ -23,10 +23,12 @@ Usage (repo root)::
     python scripts/weekly_update.py refresh
     python scripts/weekly_update.py retrain
 
-By default each run calls ``refresh_data()`` first (re-scrape UFCStats fights CSV, fighter profiles,
-and ``upcoming_cards.json`` under ``--data-dir``). Use ``--no-scrape`` only when CSVs are already
-current (e.g. offline replay). GitHub Actions keeps a separate scrape step and passes ``--no-scrape``
-here so data is not fetched twice.
+By default each run calls ``refresh_data()`` first (ESPN incremental fights, ESPN profiles,
+ESPN ID audit, then UFCStats gap-fill / upcoming when reachable). Use ``--no-scrape`` only when
+CSVs are already current (e.g. CI after ``ci_try_refresh_data``). Local smoke:
+``refresh --smoke-test`` (caps ESPN scan; skips rookie eventlog fetches).
+
+GitHub Actions: ``ci_try_refresh_data`` then ``weekly_update … --no-scrape``.
 
 Defaults: ``model.pkl`` under ``<repo>/data/``, data dir ``<repo>/data``, JSON out ``<repo>/JSON_exports``.
 Override with ``--model-path``, ``--data-dir``, ``--out-dir`` as needed.
@@ -36,6 +38,7 @@ Flags match ``export_artifacts.py`` for ``--as-of-date``, ``--copy-to-mma-ai``, 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -49,16 +52,40 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import export_artifacts as export_artifacts_mod  # noqa: E402
-from src.data.refresh import refresh_data  # noqa: E402
+from src.data.refresh import DataRefreshError, refresh_data  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
 
-def _maybe_refresh_csvs(data_dir: Path, no_scrape: bool, label: str) -> None:
-    if no_scrape:
+def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) -> None:
+    if args.no_scrape:
         print(f"[weekly_update {label}] skip refresh_data (--no-scrape)", flush=True)
         return
-    print(f"[weekly_update {label}] refresh_data (UFCStats scrape) ...", flush=True)
-    refresh_data(data_dir)
+    print(f"[weekly_update {label}] refresh_data (ESPN + audit) ...", flush=True)
+    try:
+        result = refresh_data(
+            data_dir,
+            run_audit=not args.no_audit,
+            fail_on_audit_reject=not args.allow_audit_failures,
+            require_fight_updates=args.require_fight_updates,
+            fetch_rookie_audit=not args.skip_rookie_audit,
+            espn_max_events=args.espn_max_events,
+            espn_max_competitions=args.espn_max_competitions,
+            espn_verbose=not args.quiet_espn,
+        )
+    except DataRefreshError as e:
+        print(f"[weekly_update {label}] refresh_data failed: {e}", flush=True)
+        raise SystemExit(1) from e
+    debut_n = 0
+    state_path = data_dir / "espn_ingest_state.json"
+    if state_path.is_file():
+        with open(state_path, encoding="utf-8") as f:
+            debut_n = len((json.load(f).get("last_run") or {}).get("new_fighters") or [])
+    print(
+        f"[weekly_update {label}] refresh_data ok: {result.fights_updated} fight row update(s), "
+        f"{debut_n} new espn_* fighter id(s), audit={'pass' if result.audit_passed else 'fail'} "
+        f"(see [espn debut] lines above)",
+        flush=True,
+    )
 
 
 def _copy_to_mma_ai(out_dir: Path, mma_ai_dir: Path | None) -> None:
@@ -76,7 +103,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args.no_scrape, "refresh")
+    _maybe_refresh_csvs(data_dir, args, "refresh")
     print(f"[weekly_update refresh] load pickle {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update refresh] load_data {data_dir}", flush=True)
@@ -110,7 +137,7 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args.no_scrape, "retrain")
+    _maybe_refresh_csvs(data_dir, args, "retrain")
     print(f"[weekly_update retrain] load pickle (config + warm state) {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update retrain] load_data {data_dir}", flush=True)
@@ -169,6 +196,49 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip refresh_data(); use existing CSVs under --data-dir (CI passes this when scrape runs separately).",
     )
+    common.add_argument(
+        "--no-audit",
+        action="store_true",
+        help="Skip ESPN duplicate/rookie audit after ingest.",
+    )
+    common.add_argument(
+        "--allow-audit-failures",
+        action="store_true",
+        help="Log audit rejects but do not exit (debug only).",
+    )
+    common.add_argument(
+        "--skip-rookie-audit",
+        action="store_true",
+        help="Skip ESPN eventlog rookie checks (offline / faster).",
+    )
+    common.add_argument(
+        "--require-fight-updates",
+        action="store_true",
+        help="Fail if ESPN changes 0 fights (CI strict mode; use for local CI-parity smoke).",
+    )
+    common.add_argument(
+        "--espn-max-events",
+        type=int,
+        default=None,
+        help="Limit ESPN incremental to N events (local smoke test).",
+    )
+    common.add_argument(
+        "--espn-max-competitions",
+        type=int,
+        default=None,
+        help="Stop after N bout updates in one incremental run (local smoke test).",
+    )
+    common.add_argument(
+        "--quiet-espn",
+        action="store_true",
+        help="Less per-event ESPN ingest logging.",
+    )
+    common.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Shorthand: --espn-max-events 3 --espn-max-competitions 8 --skip-rookie-audit "
+        "(still runs audit on any new espn_* ids from that sample).",
+    )
 
     sp_r = sub.add_parser("refresh", parents=[common], help="Rebuild ELO + training matrix; keep W from pickle (steps 1–5).")
     sp_r.add_argument(
@@ -183,8 +253,19 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _apply_smoke_test_defaults(args: argparse.Namespace) -> None:
+    if not args.smoke_test:
+        return
+    if args.espn_max_events is None:
+        args.espn_max_events = 3
+    if args.espn_max_competitions is None:
+        args.espn_max_competitions = 8
+    args.skip_rookie_audit = True
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    _apply_smoke_test_defaults(args)
     if args.command == "refresh":
         return cmd_refresh(args)
     if args.command == "retrain":

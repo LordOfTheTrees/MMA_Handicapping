@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -13,8 +14,12 @@ from src.data.espn_client import ESPNClient, ESPN_REQUEST_DELAY_SEC
 from src.data.espn_crosswalk import (
     BoutIdentity,
     CrosswalkStore,
+    _load_profiles_by_id,
     build_fight_index_from_csv,
-    build_name_index_from_profiles,
+    build_name_index,
+    espn_placeholder_athlete_id,
+    provision_ufcstats_fighter_id,
+    remap_espn_placeholders_in_fight_rows,
     resolve_fight_id,
     resolve_fighter_id,
 )
@@ -23,6 +28,7 @@ from src.data.espn_normalize import (
     build_fight_csv_row,
     espn_method_to_csv,
     fight_time_sec_from_status,
+    normalize_fighter_name,
     parse_competitor_side,
     parse_event_date,
     weight_class_from_note,
@@ -35,6 +41,53 @@ ESPN_INGEST_STATE_JSON = "espn_ingest_state.json"
 def _log(verbose: bool, msg: str) -> None:
     if verbose:
         print(msg, flush=True)
+
+
+@dataclass(frozen=True)
+class _PendingEvent:
+    event_ref: str
+    event_id: str
+    event_date: date
+    event_name: str
+
+
+def _collect_incremental_events(
+    espn: ESPNClient,
+    years: List[int],
+    *,
+    max_date: Optional[date],
+    today: date,
+) -> Tuple[List[_PendingEvent], int]:
+    """
+    Resolve ESPN event metadata and return only cards we will pull.
+
+    Returns ``(pending_sorted_by_date, skipped_count)`` where *skipped* is how
+    many indexed events were dropped (before watermark, undated, or not yet held).
+    """
+    pending: List[_PendingEvent] = []
+    skipped = 0
+    for year in years:
+        for event_ref in espn.list_event_refs(year):
+            event = espn.fetch_event(event_ref)
+            event_id = str(event.get("id") or "")
+            event_date = parse_event_date(event.get("date") or "")
+            event_name = (event.get("name") or event.get("shortName") or event_id).strip()
+            if event_date is None or event_date >= today:
+                skipped += 1
+                continue
+            if max_date is not None and event_date < max_date:
+                skipped += 1
+                continue
+            pending.append(
+                _PendingEvent(
+                    event_ref=event_ref,
+                    event_id=event_id,
+                    event_date=event_date,
+                    event_name=event_name,
+                )
+            )
+    pending.sort(key=lambda e: (e.event_date, e.event_id))
+    return pending, skipped
 
 
 def _fights_csv_path(data_dir: Path) -> Path:
@@ -148,8 +201,13 @@ def refresh_espn_fights_incremental(
     max_date = _max_fight_date(existing)
 
     crosswalk = CrosswalkStore(data_dir)
-    fight_index = build_fight_index_from_csv(fights_path, profiles_path) if fights_path.is_file() else {}
-    name_index = build_name_index_from_profiles(profiles_path)
+    profiles_by_id = _load_profiles_by_id(profiles_path)
+    fight_index = (
+        build_fight_index_from_csv(fights_path, profiles_path, crosswalk)
+        if fights_path.is_file()
+        else {}
+    )
+    name_index = build_name_index(profiles_path, crosswalk)
 
     state = _load_ingest_state(data_dir)
     scraped: Set[str] = set(state.get("scraped_competition_ids") or [])
@@ -160,91 +218,105 @@ def refresh_espn_fights_incremental(
     if min_season_year is not None:
         years = [y for y in years if y >= min_season_year]
     if max_date is not None and not force_season_years:
-        # Only scan seasons that could contain cards after our watermark.
+        # ESPN "season" year != calendar year of every card; keep prior season in case
+        # early-2026 cards live under the previous season slug, but skip old events below.
         years = [y for y in years if y >= max_date.year - 1]
     if max_seasons is not None:
         years = years[-max_seasons:]
 
+    today = date.today()
+    pending, skipped_indexed = _collect_incremental_events(
+        espn, years, max_date=max_date, today=today
+    )
+    if max_events is not None:
+        pending = pending[:max_events]
+
     _log(
         verbose,
         f"[espn incremental] data_dir={data_dir} fights={existing_count:,} rows "
-        f"max_date={max_date} seasons={years} delay={espn.request_delay_sec}s "
-        f"cache={espn.cache_dir}",
+        f"delay={espn.request_delay_sec}s cache={espn.cache_dir}",
     )
+    if max_date is not None:
+        _log(
+            verbose,
+            f"[espn incremental] latest CSV fight date: {max_date} — "
+            f"pulling {len(pending)} event(s) on/after that date",
+        )
+    else:
+        _log(
+            verbose,
+            f"[espn incremental] no fight dates in CSV — pulling {len(pending)} completed event(s)",
+        )
+    if skipped_indexed:
+        _log(
+            verbose,
+            f"[espn incremental] ({skipped_indexed} older/future/undated cards in ESPN index — skipped)",
+        )
 
     updated = 0
-    events_seen = 0
+    n_pull = len(pending)
 
-    for year in years:
-        event_refs = espn.list_event_refs(year)
-        _log(verbose, f"[espn incremental] season {year}: {len(event_refs)} events")
-        for event_ref in event_refs:
-            if max_events is not None and events_seen >= max_events:
+    for i, ev in enumerate(pending, start=1):
+        try:
+            fightcenter = espn.fetch_fightcenter(ev.event_id)
+        except RuntimeError as e:
+            _log(verbose, f"  [{i}/{n_pull}] {ev.event_date} {ev.event_name} | skip: {e}")
+            continue
+
+        comps = _iter_competitions(fightcenter)
+        event_updated = 0
+        for comp in comps:
+            if max_competitions is not None and updated >= max_competitions:
                 break
-            event = espn.fetch_event(event_ref)
-            event_id = str(event.get("id") or "")
-            event_date = parse_event_date(event.get("date") or "")
-            if event_date is None or event_date >= date.today():
+            comp_id = str(comp.get("id") or "")
+            if not comp_id:
                 continue
-            if max_date is not None and event_date < max_date:
-                # Still allow same-day re-pull for stat fixes on the watermark day.
-                pass
+            if not _competition_is_final(comp):
+                continue
 
-            events_seen += 1
-            event_name = (event.get("name") or event.get("shortName") or event_id).strip()
             try:
-                fightcenter = espn.fetch_fightcenter(event_id)
-            except RuntimeError as e:
-                _log(verbose, f"  skip event {event_date} {event_name}: {e}")
-                continue
-
-            comps = _iter_competitions(fightcenter)
-            event_updated = 0
-            for comp in comps:
-                if max_competitions is not None and updated >= max_competitions:
-                    break
-                comp_id = str(comp.get("id") or "")
-                if not comp_id:
-                    continue
-                if comp_id in scraped and max_date is not None and event_date < max_date:
-                    continue
-                if not _competition_is_final(comp):
-                    continue
-
-                try:
                     row, ingest_meta = _ingest_competition(
                         espn,
-                        event_id=event_id,
-                        event_date=event_date,
+                        event_id=ev.event_id,
+                        event_date=ev.event_date,
                         competition=comp,
                         crosswalk=crosswalk,
                         fight_index=fight_index,
                         name_index=name_index,
+                        profiles_by_id=profiles_by_id,
                     )
-                except RuntimeError as e:
-                    _log(verbose, f"    skip bout {comp_id}: {e}")
-                    continue
-                if row is None:
-                    continue
+            except RuntimeError as e:
+                _log(verbose, f"    skip bout {comp_id}: {e}")
+                continue
+            if row is None:
+                continue
 
-                _append_last_run_entries(last_run, ingest_meta)
+            _append_last_run_entries(last_run, ingest_meta)
 
-                fid = row["fight_id"]
-                if existing.get(fid) != row:
-                    existing[fid] = row
-                    updated += 1
-                    event_updated += 1
-                scraped.add(comp_id)
+            fid = row["fight_id"]
+            if existing.get(fid) != row:
+                existing[fid] = row
+                updated += 1
+                event_updated += 1
+            scraped.add(comp_id)
 
-            _log(
-                verbose,
-                f"  event {events_seen} {event_date} {event_name} | "
-                f"{len(comps)} bouts | {event_updated} row updates",
-            )
+        _log(
+            verbose,
+            f"  [{i}/{n_pull}] {ev.event_date} {ev.event_name} | "
+            f"{len(comps)} bouts | {event_updated} row updates",
+        )
 
-        if max_events is not None and events_seen >= max_events:
+        if max_competitions is not None and updated >= max_competitions:
             break
 
+    repair_espn_veteran_placeholders(
+        existing,
+        crosswalk,
+        profiles_by_id,
+        espn=espn,
+        verbose=verbose,
+    )
+    _prune_resolved_fighters_from_last_run(last_run, crosswalk)
     crosswalk.save()
     state["scraped_competition_ids"] = sorted(scraped)
     state["seasons_touched"] = sorted(set(state.get("seasons_touched") or []) | set(years))
@@ -270,6 +342,83 @@ def refresh_espn_fights_incremental(
     return total, updated
 
 
+def repair_espn_veteran_placeholders(
+    fights_rows: Dict[str, Dict[str, Any]],
+    crosswalk: CrosswalkStore,
+    profiles_by_id: Dict[str, Dict[str, str]],
+    *,
+    espn: ESPNClient,
+    verbose: bool = True,
+) -> int:
+    """
+    Upgrade ``espn_*`` placeholder fighter ids to provisioned hex ids when ESPN
+    eventlog shows more than one UFC bout (not a debut).
+    """
+    from src.data.espn_audit import audit_rookie_ufc_history
+
+    placeholder_aids: Set[str] = set()
+    for row in fights_rows.values():
+        for col in ("fighter_a_id", "fighter_b_id", "winner_id"):
+            aid = espn_placeholder_athlete_id((row.get(col) or "").strip())
+            if aid:
+                placeholder_aids.add(aid)
+
+    provisioned = 0
+    for aid in sorted(placeholder_aids):
+        mapped = crosswalk.athlete_to_fighter.get(aid)
+        if mapped and not str(mapped).startswith("espn_"):
+            continue
+        try:
+            athlete = espn.fetch_athlete(aid)
+        except RuntimeError as e:
+            _log(verbose, f"[espn repair] skip athlete {aid}: {e}")
+            continue
+        name = (athlete.get("displayName") or athlete.get("fullName") or aid).strip()
+        rookie = audit_rookie_ufc_history(espn, aid, athlete_payload=athlete)
+        ufc_n = rookie.get("ufc_bouts_in_eventlog")
+        if ufc_n is None or ufc_n <= 1:
+            continue
+        taken: Set[str] = set(crosswalk.athlete_to_fighter.values())
+        taken |= set(profiles_by_id.keys())
+        ufc_id = provision_ufcstats_fighter_id(aid, taken)
+        crosswalk.record_fighter(
+            ufcstats_fighter_id=ufc_id,
+            espn_athlete_id=aid,
+            fighter_name=name,
+            match_method="espn_veteran",
+        )
+        provisioned += 1
+        _log(
+            verbose,
+            f"[espn repair] {name} ({aid}) -> {ufc_id} "
+            f"({ufc_n} UFC bouts in eventlog)",
+        )
+
+    remapped = remap_espn_placeholders_in_fight_rows(fights_rows, crosswalk)
+    if provisioned or remapped:
+        _log(
+            verbose,
+            f"[espn repair] provisioned {provisioned} fighter(s), "
+            f"remapped {remapped} fight cell(s)",
+        )
+    return provisioned
+
+
+def _prune_resolved_fighters_from_last_run(
+    last_run: Dict[str, Any],
+    crosswalk: CrosswalkStore,
+) -> None:
+    """Drop ``new_fighters`` entries that now map to a non-placeholder hex id."""
+    kept: List[Dict[str, Any]] = []
+    for entry in last_run.get("new_fighters") or []:
+        aid = (entry.get("espn_athlete_id") or "").strip()
+        mapped = crosswalk.athlete_to_fighter.get(aid) if aid else ""
+        if mapped and not str(mapped).startswith("espn_"):
+            continue
+        kept.append(entry)
+    last_run["new_fighters"] = kept
+
+
 def _append_last_run_entries(last_run: Dict[str, Any], meta: Dict[str, Any]) -> None:
     if meta.get("fight_match") == "espn_new":
         last_run.setdefault("new_fights", []).append(meta.get("fight_entry") or {})
@@ -286,6 +435,7 @@ def _ingest_competition(
     crosswalk: CrosswalkStore,
     fight_index: Dict[Tuple[str, Tuple[str, str]], str],
     name_index: Dict[str, str],
+    profiles_by_id: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     comp_id = str(competition.get("id") or "")
     empty_meta: Dict[str, Any] = {}
@@ -355,8 +505,12 @@ def _ingest_competition(
             display_name,
             crosswalk=crosswalk,
             name_index=name_index,
+            profiles_by_id=profiles_by_id,
+            espn=espn,
         )
         fighter_ids.append(ufc_fid)
+        if fmatch in ("name", "fuzzy_phys", "fuzzy_name", "espn_veteran"):
+            name_index[normalize_fighter_name(display_name)] = ufc_fid
         fighter_meta.append(
             {
                 "espn_athlete_id": espn_aid,
@@ -431,8 +585,10 @@ def build_crosswalk_from_espn(
         raise FileNotFoundError(f"Need existing fights CSV at {fights_path} to build crosswalk")
 
     crosswalk = CrosswalkStore(data_dir)
-    fight_index = build_fight_index_from_csv(fights_path, data_dir / "fighter_profiles.csv")
-    name_index = build_name_index_from_profiles(data_dir / "fighter_profiles.csv")
+    profiles_path = data_dir / "fighter_profiles.csv"
+    profiles_by_id = _load_profiles_by_id(profiles_path)
+    fight_index = build_fight_index_from_csv(fights_path, profiles_path, crosswalk)
+    name_index = build_name_index(profiles_path, crosswalk)
     espn = client or ESPNClient(cache_dir=data_dir / "cache" / "espn")
     years = season_years or espn.list_season_years()
     matched = 0
@@ -500,7 +656,14 @@ def build_crosswalk_from_espn(
                     matched += 1
                     event_matched += 1
                 for aid, nm in zip(aids, names):
-                    resolve_fighter_id(aid, nm, crosswalk=crosswalk, name_index=name_index)
+                    resolve_fighter_id(
+                        aid,
+                        nm,
+                        crosswalk=crosswalk,
+                        name_index=name_index,
+                        profiles_by_id=profiles_by_id,
+                        espn=espn,
+                    )
 
             new_fights = len(crosswalk.competition_to_fight) - fights_before
             new_fighters = len(crosswalk.athlete_to_fighter) - fighters_before

@@ -139,8 +139,10 @@ class ESPNClient:
         return self.get_json(url)
 
     def fetch_athlete_eventlog(self, athlete_id: str) -> Dict[str, Any]:
-        url = (
-            f"{SITE_API}/apis/common/v3/sports/mma/athletes/{athlete_id}/eventlog"
-            "?region=us&lang=en&contentorigin=espn"
-        )
+        # site.api …/eventlog returns a rankings shell (no fight items). Core v2 is correct.
+        url = f"{CORE_API}/athletes/{athlete_id}/eventlog?lang=en&region=us"
+        return self.get_json(url)
+
+    def fetch_athlete_records(self, athlete_id: str) -> Dict[str, Any]:
+        url = f"{CORE_API}/athletes/{athlete_id}/records?lang=en&region=us"
         return self.get_json(url)

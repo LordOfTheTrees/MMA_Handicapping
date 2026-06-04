@@ -7,10 +7,11 @@ keep UFCStats column names and IDs wherever a mapping exists.
 from __future__ import annotations
 
 import csv
+import hashlib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.data.espn_normalize import normalize_fighter_name
 
@@ -135,18 +136,45 @@ def _fight_pair_key(
     return event_date.isoformat(), tuple(sorted((n1, n2)))
 
 
-def build_fight_index_from_csv(
-    fights_csv: Path,
+def build_id_to_name_map(
     profiles_csv: Path,
-) -> Dict[Tuple[str, Tuple[str, str]], str]:
+    crosswalk: Optional[CrosswalkStore] = None,
+) -> Dict[str, str]:
+    """Map hex ``fighter_id`` → display name from profiles and crosswalk (not espn_* ids)."""
     id_to_name: Dict[str, str] = {}
     if profiles_csv.is_file():
         with open(profiles_csv, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 fid = (row.get("fighter_id") or "").strip()
                 name = (row.get("name") or "").strip()
-                if fid and name:
+                if fid and name and not fid.startswith("espn_"):
                     id_to_name[fid] = name
+    if crosswalk is not None:
+        for row in crosswalk._fighter_rows.values():
+            ufc = (row.get("ufcstats_fighter_id") or "").strip()
+            name = (row.get("fighter_name") or "").strip()
+            if ufc and name and not ufc.startswith("espn_"):
+                id_to_name.setdefault(ufc, name)
+    return id_to_name
+
+
+def build_name_index(
+    profiles_csv: Path,
+    crosswalk: Optional[CrosswalkStore] = None,
+) -> Dict[str, str]:
+    """Normalized name → ``fighter_id`` from profiles + crosswalk names."""
+    index: Dict[str, str] = {}
+    for fid, name in build_id_to_name_map(profiles_csv, crosswalk).items():
+        index[normalize_fighter_name(name)] = fid
+    return index
+
+
+def build_fight_index_from_csv(
+    fights_csv: Path,
+    profiles_csv: Path,
+    crosswalk: Optional[CrosswalkStore] = None,
+) -> Dict[Tuple[str, Tuple[str, str]], str]:
+    id_to_name = build_id_to_name_map(profiles_csv, crosswalk)
 
     index: Dict[Tuple[str, Tuple[str, str]], str] = {}
     with open(fights_csv, newline="", encoding="utf-8") as f:
@@ -192,12 +220,53 @@ def resolve_fight_id(
     return f"espn_{bout.espn_competition_id}", "espn_new"
 
 
+def provision_ufcstats_fighter_id(espn_athlete_id: str, taken: Set[str]) -> str:
+    """Stable 16-char hex id for an ESPN athlete not present on UFCStats."""
+    for salt in ("", ":1", ":2"):
+        digest = hashlib.sha256(f"espn-athlete:{espn_athlete_id}{salt}".encode()).hexdigest()
+        fid = digest[:16]
+        if fid not in taken:
+            return fid
+    raise ValueError(f"could not allocate fighter id for espn athlete {espn_athlete_id}")
+
+
+def espn_placeholder_athlete_id(fighter_id: str) -> Optional[str]:
+    """Return ESPN athlete id from placeholder ``espn_{athlete_id}``, else None."""
+    fid = (fighter_id or "").strip()
+    if not fid.startswith("espn_"):
+        return None
+    aid = fid[5:]
+    return aid if aid.isdigit() else None
+
+
+def remap_espn_placeholders_in_fight_rows(
+    rows: Dict[str, Dict[str, Any]],
+    crosswalk: CrosswalkStore,
+) -> int:
+    """Replace ``espn_*`` fighter ids with crosswalk hex ids; returns cells updated."""
+    n = 0
+    for row in rows.values():
+        for col in ("fighter_a_id", "fighter_b_id", "winner_id"):
+            val = (row.get(col) or "").strip()
+            aid = espn_placeholder_athlete_id(val)
+            if not aid:
+                continue
+            mapped = crosswalk.athlete_to_fighter.get(aid)
+            if mapped and not mapped.startswith("espn_"):
+                row[col] = mapped
+                n += 1
+    return n
+
+
 def resolve_fighter_id(
     espn_athlete_id: str,
     display_name: str,
     *,
     crosswalk: CrosswalkStore,
     name_index: Dict[str, str],
+    profiles_by_id: Optional[Dict[str, Dict[str, str]]] = None,
+    espn: Optional[Any] = None,
+    auto_link_fuzzy: bool = True,
 ) -> Tuple[str, str]:
     if espn_athlete_id in crosswalk.athlete_to_fighter:
         return crosswalk.athlete_to_fighter[espn_athlete_id], "crosswalk"
@@ -213,17 +282,79 @@ def resolve_fighter_id(
         )
         return ufc_id, "name"
 
+    if auto_link_fuzzy and profiles_by_id:
+        from src.data.espn_audit import FUZZY_FAIL, FUZZY_PHYS_AUTO_REJECT, _best_fuzzy_profile_match
+
+        espn_h: Optional[float] = None
+        espn_r: Optional[float] = None
+        if espn is not None:
+            try:
+                ath = espn.fetch_athlete(espn_athlete_id)
+                hi = ath.get("height")
+                ri = ath.get("reach")
+                espn_h = round(float(hi) * 2.54, 2) if hi else None
+                espn_r = round(float(ri) * 2.54, 2) if ri else None
+            except (RuntimeError, TypeError, ValueError):
+                pass
+        suggested_id, score, phys_identical = _best_fuzzy_profile_match(
+            display_name,
+            profiles_by_id,
+            exclude_id=f"espn_{espn_athlete_id}",
+            espn_height_cm=espn_h,
+            espn_reach_cm=espn_r,
+        )
+        if suggested_id and phys_identical and score >= FUZZY_PHYS_AUTO_REJECT:
+            crosswalk.record_fighter(
+                ufcstats_fighter_id=suggested_id,
+                espn_athlete_id=espn_athlete_id,
+                fighter_name=display_name,
+                match_method="fuzzy_phys",
+            )
+            return suggested_id, "fuzzy_phys"
+        if suggested_id and score >= FUZZY_FAIL:
+            crosswalk.record_fighter(
+                ufcstats_fighter_id=suggested_id,
+                espn_athlete_id=espn_athlete_id,
+                fighter_name=display_name,
+                match_method="fuzzy_name",
+            )
+            return suggested_id, "fuzzy_name"
+
+    if espn is not None:
+        from src.data.espn_audit import audit_rookie_ufc_history
+
+        rookie = audit_rookie_ufc_history(espn, espn_athlete_id)
+        ufc_n = rookie.get("ufc_bouts_in_eventlog")
+        if ufc_n is not None and ufc_n > 1:
+            taken: Set[str] = set(crosswalk.athlete_to_fighter.values())
+            if profiles_by_id:
+                taken |= set(profiles_by_id.keys())
+            ufc_id = provision_ufcstats_fighter_id(espn_athlete_id, taken)
+            crosswalk.record_fighter(
+                ufcstats_fighter_id=ufc_id,
+                espn_athlete_id=espn_athlete_id,
+                fighter_name=display_name,
+                match_method="espn_veteran",
+            )
+            return ufc_id, "espn_veteran"
+
     return f"espn_{espn_athlete_id}", "espn_new"
 
 
-def build_name_index_from_profiles(profiles_csv: Path) -> Dict[str, str]:
-    index: Dict[str, str] = {}
+def build_name_index_from_profiles(
+    profiles_csv: Path,
+    crosswalk: Optional[CrosswalkStore] = None,
+) -> Dict[str, str]:
+    return build_name_index(profiles_csv, crosswalk)
+
+
+def _load_profiles_by_id(profiles_csv: Path) -> Dict[str, Dict[str, str]]:
+    rows: Dict[str, Dict[str, str]] = {}
     if not profiles_csv.is_file():
-        return index
+        return rows
     with open(profiles_csv, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             fid = (row.get("fighter_id") or "").strip()
-            name = (row.get("name") or "").strip()
-            if fid and name:
-                index[normalize_fighter_name(name)] = fid
-    return index
+            if fid:
+                rows[fid] = row
+    return rows

@@ -123,26 +123,68 @@ def parse_record_string(record: str) -> Tuple[int, int, int]:
     return nums[0], nums[1], nums[2]
 
 
-def count_ufc_bouts_in_eventlog(payload: Dict[str, Any]) -> int:
+def _eventlog_items(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Normalize ESPN core v2 or legacy list-shaped eventlog payloads."""
+    if payload.get("playerSwitcher"):
+        return []
     events = payload.get("events")
-    if events is None:
-        events = payload.get("eventlog")
     if isinstance(events, dict):
-        events = events.get("items") or events.get("events") or []
-    if not isinstance(events, list):
+        raw = events.get("items") or []
+        items: List[Dict[str, Any]] = []
+        for item in raw:
+            if isinstance(item, dict):
+                items.append(item)
+        return items
+    if isinstance(events, list):
+        return [ev for ev in events if isinstance(ev, dict)]
+    legacy = payload.get("eventlog")
+    if isinstance(legacy, list):
+        return [ev for ev in legacy if isinstance(ev, dict)]
+    return []
+
+
+def count_ufc_bouts_in_eventlog(payload: Dict[str, Any]) -> int:
+    """
+    Count UFC bout appearances in an athlete eventlog.
+
+    Core v2 (``/athletes/{id}/eventlog``) lists UFC items under ``events.items``;
+    each item may include ``played`` (skip False). Legacy site.api list entries
+    may include a ``league`` object — only those count as UFC.
+    """
+    items = _eventlog_items(payload)
+    if not items:
         return 0
     count = 0
-    for ev in events:
-        if not isinstance(ev, dict):
+    for ev in items:
+        if ev.get("played") is False:
             continue
         league = ev.get("league") or {}
-        if not isinstance(league, dict):
-            league = {}
-        slug = str(league.get("slug") or league.get("abbreviation") or "").lower()
-        name = str(league.get("name") or league.get("displayName") or "").lower()
-        if slug == "ufc" or name == "ufc" or "ufc" in name:
-            count += 1
+        if isinstance(league, dict) and league:
+            slug = str(league.get("slug") or league.get("abbreviation") or "").lower()
+            name = str(league.get("name") or league.get("displayName") or "").lower()
+            if slug == "ufc" or name == "ufc" or "ufc" in name:
+                count += 1
+            continue
+        # Core UFC athlete eventlog items omit league — treat as UFC.
+        count += 1
     return count
+
+
+def _career_record_from_records_payload(payload: Dict[str, Any]) -> str:
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("summary", "displayValue", "displayRecord"):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip() and re.search(r"\d", val):
+                return val.strip()
+        rec = item.get("record")
+        if isinstance(rec, dict):
+            for sub in ("summary", "displayValue"):
+                s = rec.get(sub)
+                if isinstance(s, str) and s.strip():
+                    return s.strip()
+    return ""
 
 
 def _record_from_athlete(athlete: Dict[str, Any]) -> str:
@@ -165,12 +207,19 @@ def audit_rookie_ufc_history(
     athlete_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     athlete = athlete_payload or espn.fetch_athlete(espn_athlete_id)
+    rec = _record_from_athlete(athlete)
+    if not rec:
+        try:
+            records_payload = espn.fetch_athlete_records(espn_athlete_id)
+            rec = _career_record_from_records_payload(records_payload) or rec
+        except RuntimeError:
+            pass
     try:
         eventlog = espn.fetch_athlete_eventlog(espn_athlete_id)
     except RuntimeError as e:
         return {
             "ufc_bouts_in_eventlog": None,
-            "record": _record_from_athlete(athlete),
+            "record": rec,
             "wins": None,
             "losses": None,
             "draws": None,
@@ -178,7 +227,6 @@ def audit_rookie_ufc_history(
             "error": str(e),
         }
     ufc_count = count_ufc_bouts_in_eventlog(eventlog)
-    rec = _record_from_athlete(athlete)
     w, l, d = parse_record_string(rec)
     career_bouts = w + l + d
     rookie_ok = ufc_count == 1 and career_bouts >= 1
@@ -425,6 +473,107 @@ def audit_fight_method5(
     return findings
 
 
+def format_debut_fighter_terminal_line(
+    report: Dict[str, Any],
+    findings: List[AuditFinding],
+    *,
+    fetch_rookie: bool,
+) -> str:
+    """One terminal line per new ``espn_*`` fighter after ESPN history validation."""
+    fid = report.get("fighter_id") or "?"
+    name = report.get("display_name") or fid
+    bout = (report.get("bout_summary") or "").strip()
+    rookie = report.get("rookie") or {}
+    reject_codes = {f.code for f in findings if f.severity == "reject"}
+
+    if "duplicate_fuzzy_phys" in reject_codes:
+        sug = ""
+        for f in findings:
+            if f.code == "duplicate_fuzzy_phys":
+                sug = (f.details or {}).get("suggested_fighter_id") or ""
+                break
+        extra = f" (maps to existing {sug})" if sug else ""
+        status = f"FAIL — likely duplicate (fuzzy name + identical height/reach){extra}"
+    elif "not_rookie_ufc_history" in reject_codes:
+        ufc_n = rookie.get("ufc_bouts_in_eventlog")
+        rec = rookie.get("record") or "?"
+        status = (
+            f"FAIL — ESPN eventlog has {ufc_n} UFC bout(s), record {rec}; "
+            "expected exactly 1 UFC bout for a debut"
+        )
+    elif not fetch_rookie:
+        status = "SKIP — ESPN eventlog not fetched (--skip-rookie-audit)"
+    elif rookie.get("error"):
+        status = f"WARN — ESPN eventlog error: {rookie.get('error')}"
+    elif rookie.get("rookie_ok"):
+        rec = rookie.get("record") or "?"
+        career = rookie.get("career_bouts")
+        career_txt = f", career {career} bout(s) pre-UFC ok" if career and career > 1 else ""
+        status = f"OK — 1 UFC bout in ESPN eventlog, record {rec}{career_txt}"
+    elif rookie.get("ufc_bouts_in_eventlog") == 0:
+        status = "WARN — 0 UFC bouts in ESPN eventlog (could not confirm debut)"
+    elif rookie.get("ufc_bouts_in_eventlog") is None:
+        status = "WARN — UFC bout count unavailable"
+    else:
+        ufc_n = rookie.get("ufc_bouts_in_eventlog")
+        status = f"WARN — unexpected rookie state (ufc_bouts={ufc_n})"
+
+    core = f"{fid} | {name}"
+    if bout:
+        core += bout
+    return f"[espn debut] {core} | {status}"
+
+
+def print_new_debut_fighter_audit(
+    new_fighters: List[Dict[str, Any]],
+    fighter_reports: List[Dict[str, Any]],
+    all_findings: List[AuditFinding],
+    *,
+    fetch_rookie: bool,
+) -> None:
+    """Print every new ``espn_*`` fighter and ESPN debut validation to the terminal."""
+    n = len(new_fighters)
+    print(
+        f"[espn debut] === {n} new fighter id(s) this run (espn_* — no prior match in crosswalk/profiles) ===",
+        flush=True,
+    )
+    if n == 0:
+        print(
+            "[espn debut] (none — ingest did not create any new espn_* fighter ids; "
+            "updates were crosswalk/name matches or stat refreshes only)",
+            flush=True,
+        )
+        return
+
+    by_id = {r.get("fighter_id"): r for r in fighter_reports}
+    for entry in new_fighters:
+        fid = entry.get("fighter_id")
+        rep = by_id.get(fid) or entry
+        fids_findings = [f for f in all_findings if f.entity_type == "fighter" and f.entity_id == fid]
+        print(
+            format_debut_fighter_terminal_line(rep, fids_findings, fetch_rookie=fetch_rookie),
+            flush=True,
+        )
+
+    ok = sum(
+        1
+        for r in fighter_reports
+        if any(
+            f.code == "rookie_ok"
+            for f in all_findings
+            if f.entity_id == r.get("fighter_id")
+        )
+    )
+    fail = sum(1 for f in all_findings if f.entity_type == "fighter" and f.severity == "reject")
+    fight_rejects = sum(1 for f in all_findings if f.entity_type == "fight" and f.severity == "reject")
+    print(
+        f"[espn debut] Summary: {n} fighter(s) checked, {ok} debut verified, "
+        f"{fail} fighter reject(s)"
+        + (f", {fight_rejects} fight-level reject(s) (see [espn audit] below)" if fight_rejects else ""),
+        flush=True,
+    )
+
+
 def run_espn_ingest_audit(
     data_dir: Path,
     *,
@@ -432,6 +581,7 @@ def run_espn_ingest_audit(
     client: Optional[ESPNClient] = None,
     fetch_rookie: bool = True,
     fail_on_reject: bool = True,
+    print_terminal: bool = True,
 ) -> Tuple[Dict[str, Any], int]:
     """
     Build ``espn_ingest_audit.json`` from ``last_run`` in ingest state.
@@ -504,6 +654,11 @@ def run_espn_ingest_audit(
         fighter_reports.append(rep)
         all_findings.extend(findings)
 
+    if print_terminal:
+        print_new_debut_fighter_audit(
+            new_fighters, fighter_reports, all_findings, fetch_rookie=fetch_rookie
+        )
+
     for entry in new_fights:
         rep = dict(entry)
         findings = audit_fight_method5(
@@ -544,40 +699,59 @@ def run_espn_ingest_audit(
         json.dump(audit, f, indent=2, sort_keys=True)
 
     exit_code = 1 if (fail_on_reject and rejects) else 0
+    if print_terminal:
+        print(
+            f"[espn audit] Result: {'PASS' if audit['passed'] else 'FAIL'} "
+            f"({audit['reject_count']} rejects, {audit['warn_count']} warnings) "
+            f"-> {out_path}",
+            flush=True,
+        )
     return audit, exit_code
 
 
-def format_audit_log_lines(audit: Dict[str, Any]) -> List[str]:
-    """Human-readable lines for CI logs and weekly report."""
+def format_audit_log_lines(audit: Dict[str, Any], *, fetch_rookie: bool = True) -> List[str]:
+    """Human-readable lines for CI logs and weekly report (debut fighters first)."""
     lines: List[str] = []
-    lines.append(
-        f"ESPN ingest audit: {audit.get('new_fighters_count', 0)} new fighters, "
-        f"{audit.get('new_fights_count', 0)} new fights, "
-        f"{audit.get('reject_count', 0)} rejects, {audit.get('warn_count', 0)} warnings"
-    )
-    for f in audit.get("new_fighters") or []:
-        name = f.get("display_name") or f.get("fighter_id")
-        bout = f.get("bout_summary") or ""
-        sug = f.get("suggested_fighter_id") or ""
-        score = f.get("fuzzy_score") or 0
-        rookie = f.get("rookie") or {}
-        r_ok = rookie.get("rookie_ok")
-        r_txt = ""
-        if rookie.get("ufc_bouts_in_eventlog") is not None:
-            r_txt = (
-                f" | UFC bouts={rookie.get('ufc_bouts_in_eventlog')} "
-                f"record={rookie.get('record')} rookie_ok={r_ok}"
+    nf = audit.get("new_fighters") or []
+    lines.append(f"[espn debut] {len(nf)} new espn_* fighter(s) this run")
+    findings = audit.get("findings") or []
+    for rep in nf:
+        fid = rep.get("fighter_id")
+        f_findings = [
+            AuditFinding(
+                severity=f["severity"],
+                code=f["code"],
+                message=f["message"],
+                entity_type=f["entity_type"],
+                entity_id=f["entity_id"],
+                details=f.get("details") or {},
             )
-        extra = f" -> suggest {sug} ({score:.2f})" if sug and score >= FUZZY_WARN else ""
-        lines.append(f"  fighter {f.get('fighter_id')}: {name}{bout}{extra}{r_txt}")
+            for f in findings
+            if f.get("entity_type") == "fighter" and f.get("entity_id") == fid
+        ]
+        lines.append(format_debut_fighter_terminal_line(rep, f_findings, fetch_rookie=fetch_rookie))
+    if not nf:
+        lines.append("[espn debut] (none this run)")
     for fight in audit.get("new_fights") or []:
         lines.append(
-            f"  fight {fight.get('fight_id')}: {fight.get('event_date')} "
-            f"{fight.get('fighter_a_name')} vs {fight.get('fighter_b_name')} "
-            f"({fight.get('match_method')})"
+            f"[espn audit] new fight {fight.get('fight_id')}: {fight.get('event_date')} "
+            f"{fight.get('fighter_a_name')} vs {fight.get('fighter_b_name')}"
         )
-    for finding in audit.get("findings") or []:
-        if finding.get("severity") in ("reject", "warn"):
+    for finding in findings:
+        if finding.get("severity") in ("reject", "warn") and finding.get("entity_type") != "fighter":
             lines.append(f"  [{finding.get('severity')}] {finding.get('message')}")
-    lines.append(f"Result: {'PASS' if audit.get('passed') else 'FAIL'}")
+        elif finding.get("severity") in ("reject", "warn") and finding.get("code") not in (
+            "not_rookie_ufc_history",
+            "duplicate_fuzzy_phys",
+            "rookie_no_ufc_eventlog",
+            "fuzzy_name_match",
+        ):
+            lines.append(f"  [{finding.get('severity')}] {finding.get('message')}")
+    for finding in findings:
+        if finding.get("severity") == "reject" and finding.get("code") == "fuzzy_name_match":
+            lines.append(f"  [reject] {finding.get('message')}")
+    lines.append(
+        f"[espn audit] Result: {'PASS' if audit.get('passed') else 'FAIL'} "
+        f"({audit.get('reject_count', 0)} rejects, {audit.get('warn_count', 0)} warnings)"
+    )
     return lines

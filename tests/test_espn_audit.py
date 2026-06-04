@@ -29,6 +29,21 @@ def test_parse_record_and_eventlog():
     assert count_ufc_bouts_in_eventlog(payload) == 2
 
 
+def test_count_ufc_core_v2_eventlog():
+    core = {
+        "events": {
+            "count": 2,
+            "items": [
+                {"played": True, "$ref": "http://example/event/1"},
+                {"played": False, "$ref": "http://example/event/2"},
+            ],
+        }
+    }
+    assert count_ufc_bouts_in_eventlog(core) == 1
+    site_shell = {"playerSwitcher": {"athletes": []}, "season": {"year": 2026}}
+    assert count_ufc_bouts_in_eventlog(site_shell) == 0
+
+
 def test_auto_reject_fuzzy_phys(tmp_path: Path):
     profiles = {
         "aaa111": {

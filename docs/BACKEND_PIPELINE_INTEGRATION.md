@@ -130,6 +130,8 @@ python -c "import json; print(json.load(open('JSON_exports/elo_states.json'))['e
 
 **Work offline** (no scrape): `python scripts/weekly_update.py refresh --data-dir ./data --model-path ./data/model.pkl --out-dir ./JSON_exports --no-scrape`
 
+**Local workflow smoke** (ESPN sample + audit + ELO/export): `python scripts/weekly_update.py refresh --smoke-test --data-dir ./data --model-path ./data/model.pkl`
+
 **Note:** `data/` is gitignored (`/data/` in `.gitignore`). Restored files stay local until the next restore or a manual scrape. Artifact expiry follows GitHub Actions retention (check Actions → Artifacts if downloads start failing).
 
 ---

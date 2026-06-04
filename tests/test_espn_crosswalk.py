@@ -6,6 +6,8 @@ from src.data.espn_crosswalk import (
     BoutIdentity,
     CrosswalkStore,
     build_fight_index_from_csv,
+    provision_ufcstats_fighter_id,
+    remap_espn_placeholders_in_fight_rows,
     resolve_fight_id,
     resolve_fighter_id,
 )
@@ -52,3 +54,29 @@ def test_resolve_fighter_id_by_name(tmp_path: Path):
     )
     assert fid == "aaa111"
     assert method == "name"
+
+
+def test_provision_and_remap_espn_placeholder(tmp_path: Path):
+    fid = provision_ufcstats_fighter_id("4693161", {"aaa111"})
+    assert len(fid) == 16
+    assert fid != "aaa111"
+    assert provision_ufcstats_fighter_id("4693161", {fid}) == fid
+
+    cw = CrosswalkStore(tmp_path)
+    cw.record_fighter(
+        ufcstats_fighter_id=fid,
+        espn_athlete_id="4693161",
+        fighter_name="Luis Felipe Dias",
+        match_method="espn_veteran",
+    )
+    rows = {
+        "espn_99": {
+            "fight_id": "espn_99",
+            "fighter_a_id": "espn_4693161",
+            "fighter_b_id": "bbb222",
+            "winner_id": "espn_4693161",
+        }
+    }
+    assert remap_espn_placeholders_in_fight_rows(rows, cw) == 2
+    assert rows["espn_99"]["fighter_a_id"] == fid
+    assert rows["espn_99"]["winner_id"] == fid

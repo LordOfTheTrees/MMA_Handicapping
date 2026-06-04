@@ -23,6 +23,8 @@ python -m src.data.espn_profiles --data-dir ./data
 
 [`refresh_data()`](../src/data/refresh.py) and [`scripts/ci_try_refresh_data.py`](../scripts/ci_try_refresh_data.py) call the ESPN incremental path by default.
 
+**Incremental window:** reads the latest `date` in `ufcstats_fights.csv` (`max_date`), then logs only **`pulling N event(s) on/after that date`**. Older cards in ESPN’s index are counted as skipped, not listed per event. Progress lines look like `[2/4] 2026-05-16 UFC Fight Night | …`.
+
 ### ESPN-derived files (explicit source in name)
 
 | File | Purpose |
@@ -42,7 +44,13 @@ After incremental ingest, [`src/data/espn_audit.py`](../src/data/espn_audit.py) 
 - **Rookie check:** ESPN athlete eventlog must show **exactly one** UFC bout while career W/L can be higher (pre-UFC)
 - **Method 5:** fight-level consistency (hex fighters + `espn_*` fight id, opponent history, etc.)
 
-[`scripts/ci_try_refresh_data.py`](../scripts/ci_try_refresh_data.py) fails CI on any **reject**. Human-readable lines: [`scripts/espn_weekly_audit_report.py`](../scripts/espn_weekly_audit_report.py). Scheduled report workflow: `.github/workflows/espn-weekly-audit.yml`.
+[`refresh_data()`](../src/data/refresh.py) runs the audit after every ingest (used by **`weekly_update`**, **`main.py train --full-rebuild`**, and CI). Rejects fail the run unless `--allow-audit-failures` (weekly_update debug). CI sets `require_fight_updates=True` via [`ci_try_refresh_data.py`](../scripts/ci_try_refresh_data.py). Human-readable lines: [`scripts/espn_weekly_audit_report.py`](../scripts/espn_weekly_audit_report.py). Scheduled report workflow: `.github/workflows/espn-weekly-audit.yml`.
+
+Local workflow smoke (caps ESPN, still runs audit on new ids from sample):
+
+```bash
+python scripts/weekly_update.py refresh --smoke-test --data-dir ./data --model-path ./data/model.pkl
+```
 
 Training artifacts keep **UFCStats column names and filenames** (`ufcstats_fights.csv`, `fighter_profiles.csv`). New fights that cannot be matched to historical rows may temporarily use `espn_{competition_id}` / `espn_{athlete_id}` until a full backfill crosswalk is run.
 
