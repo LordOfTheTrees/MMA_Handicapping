@@ -21,27 +21,19 @@ from typing import Any, Dict, List, Optional, Set
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
+from src.data.tier1_csv import (
+    DEFAULT_UFCSTATS_FIGHTS_CSV,
+    LEGACY_FIGHTS_CSV,
+    PROFILE_CSV_FIELDS,
+)
+
+__all__ = ["PROFILE_CSV_FIELDS", "DEFAULT_UFCSTATS_FIGHTS_CSV"]
 from src.data.ufcstats_scraper import (
     BASE,
-    DEFAULT_UFCSTATS_FIGHTS_CSV,
     REQUEST_DELAY_SEC,
     fetch_soup,
     _session,
 )
-
-PROFILE_CSV_FIELDS = [
-    "fighter_id",
-    "name",
-    "reach_cm",
-    "height_cm",
-    "date_of_birth",
-    "stance",
-    "wrestling_pedigree",
-    "boxing_pedigree",
-    "bjj_pedigree",
-]
-
-LEGACY_FIGHTS_CSV = "tier1_ufcstats.csv"
 
 
 def fighter_ids_from_fights_csv(tier1_path: Path) -> List[str]:

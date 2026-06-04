@@ -32,12 +32,10 @@ from bs4 import BeautifulSoup
 from curl_cffi import CurlHttpVersion, requests
 
 from src.data.loader import METHOD_MAP, WEIGHT_CLASS_MAP
+from src.data.tier1_csv import CSV_FIELDS, DEFAULT_UFCSTATS_FIGHTS_CSV
 
 # --- Runtime-tunable request spacing (seconds). CLI ``--sleep`` assigns this in ``main``. ---
 REQUEST_DELAY_SEC: float = 0.2
-
-# Default basename next to ``--data-dir`` / ``./data``.
-DEFAULT_UFCSTATS_FIGHTS_CSV = "ufcstats_fights.csv"
 
 BASE = "http://ufcstats.com"
 COMPLETED_EVENTS_URL = f"{BASE}/statistics/events/completed?page=all"
@@ -645,31 +643,6 @@ def iter_expected_fights_from_completed_events(
                 event_date=ev_date,
             )
 
-
-CSV_FIELDS = [
-    "fight_id",
-    "fighter_a_id",
-    "fighter_b_id",
-    "winner_id",
-    "method",
-    "weight_class",
-    "date",
-    "fight_time_sec",
-    "a_sig_str_landed",
-    "a_sig_str_attempted",
-    "a_sig_str_absorbed",
-    "a_td_landed",
-    "a_td_attempted",
-    "a_ctrl_time_sec",
-    "a_sub_attempts",
-    "b_sig_str_landed",
-    "b_sig_str_attempted",
-    "b_sig_str_absorbed",
-    "b_td_landed",
-    "b_td_attempted",
-    "b_ctrl_time_sec",
-    "b_sub_attempts",
-]
 
 FAILED_ENTRY_FIELDS = [
     "fight_id",

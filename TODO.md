@@ -24,7 +24,8 @@ UFCStats completed-events scrape is **blocked** from CI/GitHub (and often locall
 
 | Path | Role |
 |------|------|
-| **A. UFCStats + HTTP** | Restore reliable access (`curl_cffi` / headers / session / newer impersonation); still the source of **finished-fight totals** for training. |
+| **A. ESPN API (primary)** | Incremental ingest + crosswalk — see [`docs/data-sources-espn.md`](docs/data-sources-espn.md). UFCStats hex IDs preserved via `espn_crosswalk_*.csv`. |
+| **A′. UFCStats + HTTP** | Legacy HTML path; blocked in CI. Parser kept as reference / fallback. |
 | **B. Official UFC site** | Ingest **upcoming** cards and bout matchups from **ufc.com** (or UFC’s public event pages) for the calendar / `upcoming_events.json` path — does **not** replace historical fight stats unless we add a separate results feed. Complements [`src/data/ufcstats_upcoming.py`](src/data/ufcstats_upcoming.py) (today: UFCStats upcoming only). |
 | **C. Alternate finished-fight source** | Sherdog / other tier-2/3 CSVs, or manual gap-fill for **new** fights only if UFCStats stays blocked. |
 | **D. Bridge (now)** | CI **`allow_stale_data`** + artifact restore; local **disaster recovery** script bundle — unblocks export/retrain on **last good** snapshot until A–C land. |

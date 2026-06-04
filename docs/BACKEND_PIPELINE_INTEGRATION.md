@@ -37,7 +37,7 @@ Or combine **A** / **B** with **`--copy-to-mma-ai`** (and optional **`--mma-ai-a
 | Artifact | Contents |
 |----------|-----------|
 | **`mma-model-state`** | **`data/model.pkl`** for the next CI run |
-| **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** | **`JSON_exports/`**, key **`data/*.csv`**, **`upcoming_cards.json`** — **`sync-json-to-mma-ai`** downloads the newest non-expired bundle (**`run-bundle`** mode). |
+| **`weekly-refresh-<run_id>`** / **`monthly-retrain-<run_id>`** | **`JSON_exports/`**, **`data/ufcstats_fights.csv`**, **`fighter_profiles.csv`**, **`espn_crosswalk_*.csv`**, **`espn_ingest_state.json`**, **`upcoming_cards.json`** — see [**data-sources-espn.md**](data-sources-espn.md). |
 
 **After you download an artifact zip locally:** unzip and point **`--src`** at the folder that contains the five inference **`*.json`** files (usually **`JSON_exports/`** inside the bundle). From **`MMA_Handicapping` repo root**:
 
@@ -53,31 +53,32 @@ Default **`--dest`** is sibling **`../mma.ai/artifacts`** (override with **`--de
 
 Record of operator controls and failure modes for **[`weekly-model-refresh.yml`](../.github/workflows/weekly-model-refresh.yml)**, **[`monthly-model-retrain.yml`](../.github/workflows/monthly-model-retrain.yml)**, and **[`sync-json-to-mma-ai.yml`](../.github/workflows/sync-json-to-mma-ai.yml)**.
 
-#### `allow_stale_data` (manual dispatch only)
+#### Default weekly/monthly data path (restore + ESPN delta)
 
-| Setting | When | Behavior |
-|---------|------|----------|
-| **`false`** (default) | Normal **Run workflow** | Live UFCStats scrape required. No restore of prior run-bundle CSVs. |
-| **`true`** | Admin/debug when scrape is broken | Restores **`data/ufcstats_fights.csv`**, **`fighter_profiles.csv`**, **`upcoming_cards.json`** from the newest non-expired **`weekly-refresh-*`** or **`monthly-retrain-*`** artifact, then runs scrape step with **`--allow-stale-data`**. Pipeline rebuild/export can complete on **stale** inputs. |
+Every scheduled and normal manual run:
 
-**Scheduled** Monday / 1st-of-month runs do **not** expose this input; they always follow the **`false`** path (strict scrape).
+1. `python scripts/ci_restore_data_bundle.py` — seed fights, profiles, crosswalk, ingest state, upcoming cards from the newest run bundle.
+2. `python scripts/ci_try_refresh_data.py` — ESPN **incremental** only. **Fails** if ESPN is down or if **zero fights** were updated/added (weekly goal not met).
 
-**Steps involved when `true`:**
+**Manual dispatch:** `skip_espn_refresh` skips step 2. `--allow-stale-data` (CLI only) succeeds without new ESPN rows (debug).
 
-1. `python scripts/ci_restore_data_bundle.py` (needs `GITHUB_TOKEN` / `actions: read`)
-2. `python scripts/ci_try_refresh_data.py --allow-stale-data`
+**Quiet week (no UFC card):** ingest may correctly update 0 fights and the job will fail; use `--allow-stale-data` manually that week or skip the workflow.
 
-#### Scrape failure (UFCStats bot wall)
+Full history rescrape (UFCStats HTML, multi-year ESPN crosswalk) is **operator-only**, not CI.
 
-UFCStats may return a Cloudflare “Checking your browser” page instead of the completed-events index. Symptoms in logs:
+#### Refresh failure (ESPN / network)
 
-- `Fetching event index ...` then immediate finish
-- `Index probe: UFCStats returned a bot-challenge page (Cloudflare).`
-- `::group::UFCStats scrape blocked` / `::error::...`
+CI uses **[`scripts/ci_try_refresh_data.py`](../scripts/ci_try_refresh_data.py)** → ESPN incremental ingest (see **[data-sources-espn.md](data-sources-espn.md)**). Failures log `::group::ESPN ingest failed`.
 
-With **`allow_stale_data: false`**, the refresh/retrain job **fails**; no new run bundle is uploaded.
+With **`allow_stale_data: false`**, the job **fails**; no new run bundle is uploaded. Ingest never wipes a non-empty **`ufcstats_fights.csv`** with zero rows.
 
-The scraper (**[`src/data/ufcstats_scraper.py`](../src/data/ufcstats_scraper.py)**) refuses to replace an existing non-empty **`ufcstats_fights.csv`** with an empty file when the index is blocked.
+**One-time local setup:** after restoring an artifact bundle, run crosswalk for recent seasons so new ESPN rows keep UFCStats hex IDs:
+
+```bash
+python -m src.data.espn_ingest crosswalk --data-dir ./data --season 2024 --season 2025
+```
+
+UFCStats HTML remains a **fallback** (often Cloudflare-blocked); Sherdog/Tapology are documented fallbacks only — not wired in CI.
 
 #### Sync after failed refresh
 

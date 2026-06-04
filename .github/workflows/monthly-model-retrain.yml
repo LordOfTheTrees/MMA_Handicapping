@@ -1,4 +1,5 @@
-# Monthly: scrape → full ``weekly_update.py retrain`` (bootstrap per pickle Config) → export JSON.
+# Monthly: restore last bundle → ESPN incremental delta → full retrain + bootstrap + export.
+# Full history rescrape is manual/local only — not automated here.
 # Same artifact forwarding as weekly: restore ``mma-model-state`` / upload after success.
 # Cold start: full ``train`` + ``export_artifacts`` (matches initial CI bootstrap).
 #
@@ -11,10 +12,10 @@ name: Monthly model retrain (bootstrap)
 on:
   workflow_dispatch:
     inputs:
-      allow_stale_data:
+      skip_espn_refresh:
         description: >-
-          Admin/debug: restore last run bundle and rebuild if UFCStats scrape is blocked.
-          Leave false for normal runs. Ignored on schedule (always requires live scrape).
+          Skip ESPN incremental ingest; use restored bundle CSVs only (debug).
+          Default false — normal runs restore bundle then fetch new results since last run.
         type: boolean
         default: false
   schedule:
@@ -56,19 +57,15 @@ jobs:
         run: python scripts/ci_restore_model_artifact.py
 
       - name: Restore data CSVs from last run bundle
-        if: >-
-          github.event_name == 'workflow_dispatch' && inputs.allow_stale_data == true
+        id: restore_bundle
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python scripts/ci_restore_data_bundle.py
 
-      - name: Refresh UFCStats data
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_stale_data }}" = "true" ]; then
-            python scripts/ci_try_refresh_data.py --allow-stale-data
-          else
-            python scripts/ci_try_refresh_data.py
-          fi
+      - name: Refresh fight data (ESPN incremental; fail if no updates)
+        if: >-
+          github.event_name != 'workflow_dispatch' || inputs.skip_espn_refresh != true
+        run: python scripts/ci_try_refresh_data.py
 
       - name: Full retrain + bootstrap + export
         if: steps.restore_state.outputs.seed == 'true'
@@ -95,6 +92,9 @@ jobs:
           path: |
             data/ufcstats_fights.csv
             data/fighter_profiles.csv
+            data/espn_crosswalk_fights.csv
+            data/espn_crosswalk_fighters.csv
+            data/espn_ingest_state.json
             data/upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn

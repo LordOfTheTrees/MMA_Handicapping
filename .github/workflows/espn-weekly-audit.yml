@@ -1,0 +1,47 @@
+# Weekly human-readable log of new espn_* fighters/fights from the last ingest.
+# Restores the latest run bundle (includes espn_ingest_state.json + audit JSON).
+# Re-runs audit checks when --run-audit (rookie/eventlog uses cached ESPN responses).
+
+name: ESPN weekly audit report
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monday 09:00 UTC — after weekly model refresh (08:00 UTC).
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore data bundle from latest weekly/monthly run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_restore_data_bundle.py
+
+      - name: Run audit and print report
+        run: python scripts/espn_weekly_audit_report.py --data-dir ./data --run-audit
+
+      - name: Upload cached audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: espn-weekly-audit-${{ github.run_id }}
+          path: |
+            data/espn_ingest_audit.json
+            data/espn_ingest_state.json
+          if-no-files-found: warn

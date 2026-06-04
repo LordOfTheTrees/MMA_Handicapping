@@ -32,6 +32,10 @@ BUNDLE_PREFIXES = ("weekly-refresh-", "monthly-retrain-")
 FILES = (
     "data/ufcstats_fights.csv",
     "data/fighter_profiles.csv",
+    "data/espn_crosswalk_fights.csv",
+    "data/espn_crosswalk_fighters.csv",
+    "data/espn_ingest_state.json",
+    "data/espn_ingest_audit.json",
     "data/upcoming_cards.json",
 )
 

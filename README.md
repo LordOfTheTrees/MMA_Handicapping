@@ -63,14 +63,16 @@ Weight-class aliases (`lhw`, `w_flyweight`, …), every train flag, and the full
 
 Expected inputs under `data/` (see [`src/pipeline.py`](src/pipeline.py) / [`src/data/loader.py`](src/data/loader.py)):
 
-- **`ufcstats_fights.csv`** — scraped Tier‑1 UFC fights (`scrape_ufcstats_fights_to_csv` in `src/data/ufcstats_scraper.py`). Loader also accepts legacy **`tier1_ufcstats.csv`** if the new file is missing.
+- **`ufcstats_fights.csv`** — Tier‑1 UFC fights (ESPN incremental ingest; [`docs/data-sources-espn.md`](docs/data-sources-espn.md)). Loader also accepts legacy **`tier1_ufcstats.csv`** if the new file is missing.
 - **`fighter_profiles.csv`** — same `fighter_id` keys: names, dimensions, stance, pedigree columns (`src/data/ufcstats_profiles.py`).
 
 Commands (network refresh; multi-hour runs are normal):
 
 ```bash
-python -m src.data.ufcstats_scraper --data-dir ./data
-python -m src.data.ufcstats_profiles --data-dir ./data
+python -m src.data.espn_ingest incremental --data-dir ./data
+python -m src.data.espn_profiles --data-dir ./data
+# One-time ID crosswalk (see docs/data-sources-espn.md):
+# python -m src.data.espn_ingest crosswalk --data-dir ./data --season 2024 --season 2025
 ```
 
 `python main.py train --data-dir ./data --full-rebuild` runs `refresh_data()` (Tier‑1 fights CSV, fighter profiles, and **`data/upcoming_cards.json`**) before training unless you bypass with **`--no-scrape`** / **`--skip-refresh-if-present`**. The upcoming file is **for the website export path only** and is **not** read when fitting the model (see **ADR-23** in [`docs/architecture-decisions.md`](docs/architecture-decisions.md)). Timing, **`failed_entries.csv`**, and scrape caps: [`TODO.md`](TODO.md), [`docs/todo.md`](docs/todo.md).
