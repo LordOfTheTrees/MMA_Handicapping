@@ -80,3 +80,37 @@ def test_provision_and_remap_espn_placeholder(tmp_path: Path):
     assert remap_espn_placeholders_in_fight_rows(rows, cw) == 2
     assert rows["espn_99"]["fighter_a_id"] == fid
     assert rows["espn_99"]["winner_id"] == fid
+
+
+def test_resolve_fight_id_provisioned_when_both_hex(tmp_path: Path):
+    fights = tmp_path / "ufcstats_fights.csv"
+    profiles = tmp_path / "fighter_profiles.csv"
+    fights.write_text(
+        "fight_id,fighter_a_id,fighter_b_id,winner_id,method,weight_class,date\n",
+        encoding="utf-8",
+    )
+    profiles.write_text(
+        "fighter_id,name\naaa111,Jon Jones\nbbb222,Stipe Miocic\n",
+        encoding="utf-8",
+    )
+    index = build_fight_index_from_csv(fights, profiles)
+    cw = CrosswalkStore(tmp_path)
+    bout = BoutIdentity(
+        espn_competition_id="401873935",
+        espn_event_id="600058517",
+        event_date=date(2026, 5, 30),
+        espn_athlete_ids=("1", "2"),
+        fighter_names=("Rodrigo Vera", "Zhu Kangjie"),
+    )
+    fid, method = resolve_fight_id(
+        bout,
+        crosswalk=cw,
+        fight_index=index,
+        fighter_a_id="aaa111",
+        fighter_b_id="bbb222",
+        taken_fight_ids=set(),
+    )
+    assert method == "espn_provisioned"
+    assert not fid.startswith("espn_")
+    assert len(fid) == 16
+    assert cw.competition_to_fight["401873935"] == fid

@@ -180,6 +180,8 @@ def build_fight_index_from_csv(
     with open(fights_csv, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             fight_id = (row.get("fight_id") or "").strip()
+            if fight_id.startswith("espn_"):
+                continue
             d_raw = (row.get("date") or "").strip()
             fa = (row.get("fighter_a_id") or "").strip()
             fb = (row.get("fighter_b_id") or "").strip()
@@ -200,6 +202,9 @@ def resolve_fight_id(
     *,
     crosswalk: CrosswalkStore,
     fight_index: Dict[Tuple[str, Tuple[str, str]], str],
+    fighter_a_id: Optional[str] = None,
+    fighter_b_id: Optional[str] = None,
+    taken_fight_ids: Optional[Set[str]] = None,
 ) -> Tuple[str, str]:
     """Return (ufcstats_or_legacy_fight_id, match_method)."""
     if bout.espn_competition_id in crosswalk.competition_to_fight:
@@ -208,16 +213,45 @@ def resolve_fight_id(
     key = _fight_pair_key(bout.event_date, bout.fighter_names[0], bout.fighter_names[1])
     if key in fight_index:
         ufc_id = fight_index[key]
+        if not ufc_id.startswith("espn_"):
+            crosswalk.record_fight(
+                ufcstats_fight_id=ufc_id,
+                espn_competition_id=bout.espn_competition_id,
+                espn_event_id=bout.espn_event_id,
+                event_date=bout.event_date,
+                match_method="name_date",
+            )
+            return ufc_id, "name_date"
+
+    fa = (fighter_a_id or "").strip()
+    fb = (fighter_b_id or "").strip()
+    both_hex = fa and fb and not fa.startswith("espn_") and not fb.startswith("espn_")
+    if both_hex:
+        taken: Set[str] = set(taken_fight_ids or ())
+        taken |= set(crosswalk.competition_to_fight.values())
+        taken |= set(fight_index.values())
+        ufc_id = provision_ufcstats_fight_id(bout.espn_competition_id, taken)
         crosswalk.record_fight(
             ufcstats_fight_id=ufc_id,
             espn_competition_id=bout.espn_competition_id,
             espn_event_id=bout.espn_event_id,
             event_date=bout.event_date,
-            match_method="name_date",
+            match_method="espn_provisioned",
         )
-        return ufc_id, "name_date"
+        fight_index[key] = ufc_id
+        return ufc_id, "espn_provisioned"
 
     return f"espn_{bout.espn_competition_id}", "espn_new"
+
+
+def provision_ufcstats_fight_id(espn_competition_id: str, taken: Set[str]) -> str:
+    """Stable 16-char hex fight id for an ESPN bout absent from UFCStats."""
+    for salt in ("", ":1", ":2"):
+        digest = hashlib.sha256(f"espn-competition:{espn_competition_id}{salt}".encode()).hexdigest()
+        fid = digest[:16]
+        if fid not in taken:
+            return fid
+    raise ValueError(f"could not allocate fight id for espn competition {espn_competition_id}")
 
 
 def provision_ufcstats_fighter_id(espn_athlete_id: str, taken: Set[str]) -> str:
@@ -228,6 +262,15 @@ def provision_ufcstats_fighter_id(espn_athlete_id: str, taken: Set[str]) -> str:
         if fid not in taken:
             return fid
     raise ValueError(f"could not allocate fighter id for espn athlete {espn_athlete_id}")
+
+
+def espn_placeholder_competition_id(fight_id: str) -> Optional[str]:
+    """Return ESPN competition id from placeholder ``espn_{competition_id}``, else None."""
+    fid = (fight_id or "").strip()
+    if not fid.startswith("espn_"):
+        return None
+    cid = fid[5:]
+    return cid if cid.isdigit() else None
 
 
 def espn_placeholder_athlete_id(fighter_id: str) -> Optional[str]:
@@ -256,6 +299,48 @@ def remap_espn_placeholders_in_fight_rows(
                 row[col] = mapped
                 n += 1
     return n
+
+
+def remap_espn_placeholder_fight_ids(
+    rows: Dict[str, Dict[str, Any]],
+    crosswalk: CrosswalkStore,
+) -> int:
+    """Replace ``espn_{competition}`` fight ids when both corners use hex fighter ids."""
+    changed = 0
+    for old_fid in list(rows.keys()):
+        comp = espn_placeholder_competition_id(old_fid)
+        if not comp:
+            continue
+        row = rows[old_fid]
+        fa = (row.get("fighter_a_id") or "").strip()
+        fb = (row.get("fighter_b_id") or "").strip()
+        if not fa or not fb or fa.startswith("espn_") or fb.startswith("espn_"):
+            continue
+        new_fid = crosswalk.competition_to_fight.get(comp)
+        if new_fid and new_fid.startswith("espn_"):
+            new_fid = ""
+        if not new_fid:
+            taken = set(rows.keys()) | set(crosswalk.competition_to_fight.values())
+            new_fid = provision_ufcstats_fight_id(comp, taken)
+            d_raw = (row.get("date") or "").strip()
+            try:
+                ev_date = date.fromisoformat(d_raw) if d_raw else date(1970, 1, 1)
+            except ValueError:
+                ev_date = date(1970, 1, 1)
+            crosswalk.record_fight(
+                ufcstats_fight_id=new_fid,
+                espn_competition_id=comp,
+                espn_event_id="",
+                event_date=ev_date,
+                match_method="espn_provisioned",
+            )
+        if new_fid == old_fid:
+            continue
+        row["fight_id"] = new_fid
+        rows[new_fid] = row
+        del rows[old_fid]
+        changed += 1
+    return changed
 
 
 def resolve_fighter_id(

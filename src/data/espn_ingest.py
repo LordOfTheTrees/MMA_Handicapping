@@ -19,6 +19,7 @@ from src.data.espn_crosswalk import (
     build_name_index,
     espn_placeholder_athlete_id,
     provision_ufcstats_fighter_id,
+    remap_espn_placeholder_fight_ids,
     remap_espn_placeholders_in_fight_rows,
     resolve_fight_id,
     resolve_fighter_id,
@@ -284,6 +285,7 @@ def refresh_espn_fights_incremental(
                         fight_index=fight_index,
                         name_index=name_index,
                         profiles_by_id=profiles_by_id,
+                        taken_fight_ids=set(existing.keys()),
                     )
             except RuntimeError as e:
                 _log(verbose, f"    skip bout {comp_id}: {e}")
@@ -395,11 +397,12 @@ def repair_espn_veteran_placeholders(
         )
 
     remapped = remap_espn_placeholders_in_fight_rows(fights_rows, crosswalk)
-    if provisioned or remapped:
+    fights_reid = remap_espn_placeholder_fight_ids(fights_rows, crosswalk)
+    if provisioned or remapped or fights_reid:
         _log(
             verbose,
             f"[espn repair] provisioned {provisioned} fighter(s), "
-            f"remapped {remapped} fight cell(s)",
+            f"remapped {remapped} fighter cell(s), {fights_reid} fight id(s)",
         )
     return provisioned
 
@@ -417,6 +420,20 @@ def _prune_resolved_fighters_from_last_run(
             continue
         kept.append(entry)
     last_run["new_fighters"] = kept
+
+    kept_fights: List[Dict[str, Any]] = []
+    for entry in last_run.get("new_fights") or []:
+        comp = (entry.get("espn_competition_id") or "").strip()
+        fid = (entry.get("fight_id") or "").strip()
+        mapped = crosswalk.competition_to_fight.get(comp) if comp else ""
+        if mapped and not str(mapped).startswith("espn_"):
+            continue
+        fa = (entry.get("fighter_a_id") or "").strip()
+        fb = (entry.get("fighter_b_id") or "").strip()
+        if fid.startswith("espn_") and fa and fb and not fa.startswith("espn_") and not fb.startswith("espn_"):
+            continue
+        kept_fights.append(entry)
+    last_run["new_fights"] = kept_fights
 
 
 def _append_last_run_entries(last_run: Dict[str, Any], meta: Dict[str, Any]) -> None:
@@ -436,6 +453,7 @@ def _ingest_competition(
     fight_index: Dict[Tuple[str, Tuple[str, str]], str],
     name_index: Dict[str, str],
     profiles_by_id: Optional[Dict[str, Dict[str, str]]] = None,
+    taken_fight_ids: Optional[Set[str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     comp_id = str(competition.get("id") or "")
     empty_meta: Dict[str, Any] = {}
@@ -494,7 +512,6 @@ def _ingest_competition(
         espn_athlete_ids=(sides[0][0], sides[1][0]),
         fighter_names=names,
     )
-    fight_id, fight_match = resolve_fight_id(bout, crosswalk=crosswalk, fight_index=fight_index)
 
     fighter_ids: List[str] = []
     fighter_meta: List[Dict[str, Any]] = []
@@ -524,6 +541,17 @@ def _ingest_competition(
 
     if method in ("draw", "no contest"):
         winner_id = ""
+
+    taken: Set[str] = set(taken_fight_ids or ())
+    taken |= set(fight_index.values())
+    fight_id, fight_match = resolve_fight_id(
+        bout,
+        crosswalk=crosswalk,
+        fight_index=fight_index,
+        fighter_a_id=fighter_ids[0],
+        fighter_b_id=fighter_ids[1],
+        taken_fight_ids=taken,
+    )
 
     row = build_fight_csv_row(
         fight_id=fight_id,
