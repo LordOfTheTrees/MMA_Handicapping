@@ -11,20 +11,14 @@ filters them out for the training path — see
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.data.espn_client import ESPNClient
 from src.data.espn_crosswalk import CrosswalkStore, build_name_index
-from src.data.espn_ingest import _competition_is_final, _iter_competitions
-from src.data.espn_normalize import (
-    _athlete_id_from_competitor,
-    normalize_fighter_name,
-    parse_event_date,
-    weight_class_from_note,
-)
+from src.data.espn_ingest import _PendingEvent, _competition_is_final, _iter_competitions, _resolve_season_events
+from src.data.espn_normalize import _athlete_id_from_competitor, normalize_fighter_name, weight_class_from_note
 from src.data.loader import _coerce_weight_class_from_cell
 from src.data.schema import WeightClass
 
@@ -32,39 +26,20 @@ DEFAULT_ESPN_UPCOMING_CARDS_JSON = "espn_upcoming_cards.json"
 FIGHTCENTER_SOURCE = "https://site.web.api.espn.com/apis/common/v3/sports/mma/ufc/fightcenter"
 
 
-@dataclass(frozen=True)
-class _PendingFutureEvent:
-    event_id: str
-    event_date: date
-    event_name: str
-
-
 def _collect_future_events(
     espn: ESPNClient,
     years: List[int],
     *,
     today: date,
-) -> List[_PendingFutureEvent]:
-    """Season-index scan kept **separate** from ``espn_ingest._collect_incremental_events``.
+) -> List[_PendingEvent]:
+    """Upcoming-only twin of ``espn_ingest._collect_incremental_events``.
 
-    That function must stay training-safe (ADR-05: no today-or-future events in
-    ``ufcstats_fights.csv``); this is its upcoming-only twin with the date filter
-    inverted, sharing no state or code path with the training ingest.
+    Shares the season-index scan (``_resolve_season_events``) with the training-safe
+    completed-events path but applies the opposite date filter here, never touching that
+    other function (ADR-05: no today-or-future events in ``ufcstats_fights.csv``).
     """
-    pending: List[_PendingFutureEvent] = []
-    for year in years:
-        for event_ref in espn.list_event_refs(year):
-            event = espn.fetch_event(event_ref)
-            event_id = str(event.get("id") or "")
-            event_date = parse_event_date(event.get("date") or "")
-            event_name = (event.get("name") or event.get("shortName") or event_id).strip()
-            if event_date is None or event_date < today or not event_id:
-                continue
-            pending.append(
-                _PendingFutureEvent(event_id=event_id, event_date=event_date, event_name=event_name)
-            )
-    pending.sort(key=lambda e: (e.event_date, e.event_id))
-    return pending
+    resolved, _skipped_undated = _resolve_season_events(espn, years)
+    return [ev for ev in resolved if ev.event_date >= today and ev.event_id]
 
 
 def _resolve_known_fighter_id(

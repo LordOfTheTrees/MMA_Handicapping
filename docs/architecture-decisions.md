@@ -354,9 +354,12 @@ the not-yet-built ufc.com scraper.
 
 1. New module [`src/data/espn_upcoming.py`](../src/data/espn_upcoming.py), output-schema-compatible
    with `ufcstats_upcoming.py`'s `upcoming_cards.json` (so `build_upcoming_events_doc` needs no
-   changes): `_collect_future_events` mirrors `_collect_incremental_events`'s season-index scan
-   with the date filter inverted (`event_date >= today`, kept **separate** from the training-safe
-   function per ADR-05/ADR-23 — never touches it); `_parse_future_bouts_from_fightcenter` reuses
+   changes). `espn_ingest.py` gained a shared `_resolve_season_events` helper — the season/event
+   scan loop factored out of `_collect_incremental_events` — so the training-safe completed-events
+   filter (`event_date < today`, unchanged, ADR-05) and `espn_upcoming._collect_future_events`'s
+   inverted filter (`event_date >= today`) apply to the **same** resolved event list instead of
+   each re-implementing the fetch/parse loop; `_collect_incremental_events` itself is not touched
+   beyond calling the extracted helper. `_parse_future_bouts_from_fightcenter` reuses
    `_iter_competitions`/`_competition_is_final` verbatim, keeping non-final competitions and
    reading fighter names/ESPN IDs straight off each competitor's embedded `athlete` object.
 2. **Read-only fighter-ID resolution.** `_resolve_known_fighter_id` only checks the existing
@@ -377,6 +380,15 @@ the not-yet-built ufc.com scraper.
    (`espn_upcoming_scraped`, `ufcstats_upcoming_scraped`, superseding ADR-25's single
    `upcoming_scraped`); both `ci_restore_data_bundle.py` and the workflows' upload/restore file
    lists include `data/espn_upcoming_cards.json`.
+5. **No duplicate ESPN requests within a run.** `refresh_data()` now constructs one `ESPNClient`
+   and passes it explicitly to `refresh_espn_fights_incremental`, `refresh_espn_profiles_incremental`,
+   `run_espn_ingest_audit`, and `scrape_espn_upcoming_cards_to_path` — previously each created its
+   own instance. `ESPNClient.get_json` also gained an in-memory memo (`_mem_cache`, checked before
+   the existing on-disk cache), so within one process the fights-incremental pass and the
+   upcoming-cards pass — which scan overlapping season/event-index URLs — never re-fetch over the
+   network (disk cache already prevented that) **and** never redundantly re-read/re-parse the same
+   cache file either. `tests/test_refresh_data_wiring.py` asserts the same client instance reaches
+   all three call sites.
 
 **Consequences.** The site's future-card data now has a second, independent, currently more
 reliable path that requires no new scraping infrastructure or bot-wall risk — it reuses API calls

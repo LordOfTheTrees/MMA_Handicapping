@@ -40,6 +40,8 @@ class ESPNClient:
         self._last_request_at: float = 0.0
         self.network_requests: int = 0
         self.cache_hits: int = 0
+        self.mem_hits: int = 0
+        self._mem_cache: Dict[str, Dict[str, Any]] = {}
 
     def _cache_path_for_url(self, url: str) -> Path:
         parsed = urlparse(url)
@@ -49,11 +51,21 @@ class ESPNClient:
         return self.cache_dir / f"{safe}.json"
 
     def get_json(self, url: str, *, use_cache: bool = True) -> Dict[str, Any]:
+        # In-process memo, checked before the disk cache: separate ESPNClient calls that
+        # share one instance within a single refresh_data() run (fights incremental +
+        # upcoming cards both scan the same season/event URLs) should not re-read and
+        # re-parse the same cache file twice, let alone re-fetch it.
+        if use_cache and url in self._mem_cache:
+            self.mem_hits += 1
+            return self._mem_cache[url]
+
         cache_path = self._cache_path_for_url(url)
         if use_cache and cache_path.is_file():
             self.cache_hits += 1
             with open(cache_path, encoding="utf-8") as f:
-                return json.load(f)
+                payload = json.load(f)
+            self._mem_cache[url] = payload
+            return payload
 
         self._throttle()
         self.network_requests += 1
@@ -78,6 +90,7 @@ class ESPNClient:
         if use_cache:
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f)
+            self._mem_cache[url] = payload
         return payload
 
     def _throttle(self) -> None:

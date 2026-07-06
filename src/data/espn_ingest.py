@@ -52,6 +52,42 @@ class _PendingEvent:
     event_name: str
 
 
+def _resolve_season_events(espn: ESPNClient, years: List[int]) -> Tuple[List[_PendingEvent], int]:
+    """
+    Resolve event id/date/name for every event ref across the given season years.
+
+    Shared scan step for both the training-safe completed-events path
+    (:func:`_collect_incremental_events`, below) and the upcoming-events path
+    (``espn_upcoming._collect_future_events``, future events only). This function applies
+    **no** date filtering itself beyond dropping undated events (unusable by either caller)
+    so the two call sites can never accidentally diverge on how they fetch/parse event
+    metadata — each applies its own before/after-``today`` filter on the returned list.
+
+    Returns ``(resolved_sorted_by_date, skipped_undated_count)``.
+    """
+    resolved: List[_PendingEvent] = []
+    skipped_undated = 0
+    for year in years:
+        for event_ref in espn.list_event_refs(year):
+            event = espn.fetch_event(event_ref)
+            event_id = str(event.get("id") or "")
+            event_date = parse_event_date(event.get("date") or "")
+            event_name = (event.get("name") or event.get("shortName") or event_id).strip()
+            if event_date is None:
+                skipped_undated += 1
+                continue
+            resolved.append(
+                _PendingEvent(
+                    event_ref=event_ref,
+                    event_id=event_id,
+                    event_date=event_date,
+                    event_name=event_name,
+                )
+            )
+    resolved.sort(key=lambda e: (e.event_date, e.event_id))
+    return resolved, skipped_undated
+
+
 def _collect_incremental_events(
     espn: ESPNClient,
     years: List[int],
@@ -60,34 +96,21 @@ def _collect_incremental_events(
     today: date,
 ) -> Tuple[List[_PendingEvent], int]:
     """
-    Resolve ESPN event metadata and return only cards we will pull.
+    Resolve ESPN event metadata and return only **completed** cards we will pull (ADR-05).
 
     Returns ``(pending_sorted_by_date, skipped_count)`` where *skipped* is how
     many indexed events were dropped (before watermark, undated, or not yet held).
     """
+    resolved, skipped = _resolve_season_events(espn, years)
     pending: List[_PendingEvent] = []
-    skipped = 0
-    for year in years:
-        for event_ref in espn.list_event_refs(year):
-            event = espn.fetch_event(event_ref)
-            event_id = str(event.get("id") or "")
-            event_date = parse_event_date(event.get("date") or "")
-            event_name = (event.get("name") or event.get("shortName") or event_id).strip()
-            if event_date is None or event_date >= today:
-                skipped += 1
-                continue
-            if max_date is not None and event_date < max_date:
-                skipped += 1
-                continue
-            pending.append(
-                _PendingEvent(
-                    event_ref=event_ref,
-                    event_id=event_id,
-                    event_date=event_date,
-                    event_name=event_name,
-                )
-            )
-    pending.sort(key=lambda e: (e.event_date, e.event_id))
+    for ev in resolved:
+        if ev.event_date >= today:
+            skipped += 1
+            continue
+        if max_date is not None and ev.event_date < max_date:
+            skipped += 1
+            continue
+        pending.append(ev)
     return pending, skipped
 
 

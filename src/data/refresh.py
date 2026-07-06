@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from .espn_audit import format_audit_log_lines, run_espn_ingest_audit
+from .espn_client import ESPNClient
 from .espn_ingest import refresh_espn_fights_incremental
 from .espn_profiles import refresh_espn_profiles_incremental
 from .espn_upcoming import DEFAULT_ESPN_UPCOMING_CARDS_JSON, scrape_espn_upcoming_cards_to_path
@@ -77,10 +78,17 @@ def refresh_data(
     fights_path = data_dir / DEFAULT_UFCSTATS_FIGHTS_CSV
     before_rows = _count_fight_rows(fights_path)
 
+    # One client for the whole run: the fights-incremental and upcoming-cards passes both
+    # scan the same ESPN season/event-index URLs, so sharing an instance means the second
+    # pass hits ESPNClient's in-memory memo instead of re-reading/re-parsing the disk cache
+    # (and never re-fetches over the network either way — see ESPNClient.get_json).
+    espn_client = ESPNClient(cache_dir=data_dir / "cache" / "espn")
+
     print("[refresh] ESPN incremental fights (cached) ...", flush=True)
     try:
         total, n_updated = refresh_espn_fights_incremental(
             data_dir,
+            client=espn_client,
             max_events=espn_max_events,
             max_competitions=espn_max_competitions,
             verbose=espn_verbose,
@@ -102,7 +110,7 @@ def refresh_data(
         f"({n_updated} updated/added this run); ESPN profiles ...",
         flush=True,
     )
-    refresh_espn_profiles_incremental(data_dir)
+    refresh_espn_profiles_incremental(data_dir, client=espn_client)
 
     audit_passed = True
     reject_count = 0
@@ -110,6 +118,7 @@ def refresh_data(
     if run_audit:
         audit, audit_code = run_espn_ingest_audit(
             data_dir,
+            client=espn_client,
             fetch_rookie=fetch_rookie_audit,
             fail_on_reject=False,
             print_terminal=True,
@@ -127,7 +136,9 @@ def refresh_data(
     if espn_upcoming:
         print("[refresh] ESPN upcoming cards ...", flush=True)
         try:
-            scrape_espn_upcoming_cards_to_path(data_dir / DEFAULT_ESPN_UPCOMING_CARDS_JSON, data_dir)
+            scrape_espn_upcoming_cards_to_path(
+                data_dir / DEFAULT_ESPN_UPCOMING_CARDS_JSON, data_dir, client=espn_client
+            )
             espn_upcoming_cards_scraped = True
         except Exception as e:
             print(f"[refresh] ESPN upcoming cards scrape failed: {e}", flush=True)
