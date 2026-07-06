@@ -3,6 +3,10 @@
 # State forwarding: downloads newest ``mma-model-state`` artifact (``data/model.pkl``), then uploads
 # that name again after success so the next run can restore without AWS/extra repos.
 # Cold start (no artifact yet): full ``train`` + ``export_artifacts`` once.
+# ``upcoming_events.json`` is only exported when ``ci_try_refresh_data`` reports a fresh
+# upcoming-cards scrape this run (``espn_refresh.outputs.espn_upcoming_scraped`` /
+# ``ufcstats_upcoming_scraped``) — ESPN preferred (reliable in CI), UFCStats as fallback —
+# otherwise both are stale/blocked and we skip re-shipping recycled data.
 #
 # Annual hyperparameter search stays local; not automated here.
 #
@@ -83,6 +87,7 @@ jobs:
         run: python scripts/ci_restore_data_bundle.py
 
       - name: Refresh fight data (ESPN incremental; fail if no updates)
+        id: espn_refresh
         if: >-
           github.event_name != 'workflow_dispatch' || inputs.skip_espn_refresh != true
         run: python scripts/ci_try_refresh_data.py
@@ -99,6 +104,18 @@ jobs:
       - name: Cold start — export JSON
         if: steps.restore_state.outputs.seed != 'true'
         run: python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Export upcoming events JSON (prefer ESPN; fall back to UFCStats)
+        if: >-
+          steps.espn_refresh.outputs.espn_upcoming_scraped == 'true' ||
+          steps.espn_refresh.outputs.ufcstats_upcoming_scraped == 'true'
+        run: |
+          if [ "${{ steps.espn_refresh.outputs.espn_upcoming_scraped }}" = "true" ]; then
+            SRC=./data/espn_upcoming_cards.json
+          else
+            SRC=./data/upcoming_cards.json
+          fi
+          python scripts/export_upcoming_events.py --cards "$SRC" --out ./JSON_exports/upcoming_events.json
 
       - name: Upload model pickle for next run (mma-model-state)
         uses: actions/upload-artifact@v4
@@ -119,5 +136,6 @@ jobs:
             data/espn_ingest_state.json
             data/espn_ingest_audit.json
             data/upcoming_cards.json
+            data/espn_upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn

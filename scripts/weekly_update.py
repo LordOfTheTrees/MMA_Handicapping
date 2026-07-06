@@ -9,7 +9,18 @@ Weekly pipeline: reload data, rebuild ELO, refresh or refit regression state, ex
 
 **retrain (steps 1–6)** — Same data + ELO path, then full ``train_regression()`` (new **W**,
 bootstrap, artifact audit), saves the pickle, then exports all five JSONs. Step **6** is the
-multinomial refit; upcoming cards stay ``export_upcoming_events.py``.
+multinomial refit.
+
+**Upcoming events** — After the five JSONs, both subcommands also write ``upcoming_events.json``
+via ``export_upcoming_events``'s ``build_upcoming_events_doc``, sourced from whichever of ESPN's
+``fightcenter`` scrape or UFCStats' scrape produced fresh data this run — **ESPN preferred**
+(reliable in CI; see ``docs/ufc-com-upcoming-scrape-plan.md`` §0), UFCStats as fallback when ESPN's
+attempt fails but UFCStats' doesn't. If neither produced fresh data this run (both blocked/failed,
+or ``--no-scrape``), the export is skipped rather than re-shipping a stale ``*_cards.json`` carried
+over from a prior run. With ``--no-scrape`` (CI's split-step flow), this script never scrapes
+itself, so the CI workflow gates a separate ``export_upcoming_events.py`` step on
+``ci_try_refresh_data``'s ``espn_upcoming_scraped``/``ufcstats_upcoming_scraped`` step outputs
+instead.
 
 **Hyperparameters (both subcommands):** Uses the ``Config`` already stored in the loaded pickle
 (Huber ``delta``, ``l2_lambda``, L-BFGS limits, bootstrap count/seed, ELO fields, holdout dates,
@@ -42,7 +53,7 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
@@ -52,14 +63,18 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import export_artifacts as export_artifacts_mod  # noqa: E402
+from src.data.espn_upcoming import DEFAULT_ESPN_UPCOMING_CARDS_JSON  # noqa: E402
 from src.data.refresh import DataRefreshError, refresh_data  # noqa: E402
+from src.data.ufcstats_upcoming import DEFAULT_UPCOMING_CARDS_JSON  # noqa: E402
+from src.export.upcoming_events_doc import build_upcoming_events_doc  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
 
-def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) -> None:
+def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) -> Tuple[bool, bool]:
+    """Returns ``(ufcstats_upcoming_scraped, espn_upcoming_scraped)`` for export gating."""
     if args.no_scrape:
         print(f"[weekly_update {label}] skip refresh_data (--no-scrape)", flush=True)
-        return
+        return False, False
     print(f"[weekly_update {label}] refresh_data (ESPN + audit) ...", flush=True)
     try:
         result = refresh_data(
@@ -86,6 +101,40 @@ def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) ->
         f"(see [espn debut] lines above)",
         flush=True,
     )
+    return result.upcoming_cards_scraped, result.espn_upcoming_cards_scraped
+
+
+def _maybe_export_upcoming_events(
+    data_dir: Path,
+    out_dir: Path,
+    *,
+    ufcstats_scraped: bool,
+    espn_scraped: bool,
+    label: str,
+) -> None:
+    """Prefer ESPN's upcoming-cards file (reliable in CI); fall back to UFCStats' if only
+    that one is fresh this run. Skip entirely rather than re-ship a stale file when neither is.
+    """
+    if espn_scraped:
+        cards_path, source = data_dir / DEFAULT_ESPN_UPCOMING_CARDS_JSON, "ESPN"
+    elif ufcstats_scraped:
+        cards_path, source = data_dir / DEFAULT_UPCOMING_CARDS_JSON, "UFCStats"
+    else:
+        print(
+            f"[weekly_update {label}] skip upcoming_events export "
+            "(no fresh upcoming-cards scrape this run)",
+            flush=True,
+        )
+        return
+    if not cards_path.is_file():
+        print(f"[weekly_update {label}] skip upcoming_events export ({cards_path} missing)", flush=True)
+        return
+    cards = json.loads(cards_path.read_text(encoding="utf-8"))
+    doc = build_upcoming_events_doc(cards)
+    out_path = out_dir / "upcoming_events.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    print(f"[weekly_update {label}] Wrote {out_path} (source: {source})", flush=True)
 
 
 def _copy_to_mma_ai(out_dir: Path, mma_ai_dir: Path | None) -> None:
@@ -103,7 +152,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args, "refresh")
+    ufcstats_scraped, espn_scraped = _maybe_refresh_csvs(data_dir, args, "refresh")
     print(f"[weekly_update refresh] load pickle {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update refresh] load_data {data_dir}", flush=True)
@@ -122,6 +171,9 @@ def cmd_refresh(args: argparse.Namespace) -> int:
 
     export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
     print(f"[weekly_update refresh] Wrote 5 JSON files under {out_dir}", flush=True)
+    _maybe_export_upcoming_events(
+        data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="refresh"
+    )
 
     if args.save_model:
         pred.save(model_path)
@@ -137,7 +189,7 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args, "retrain")
+    ufcstats_scraped, espn_scraped = _maybe_refresh_csvs(data_dir, args, "retrain")
     print(f"[weekly_update retrain] load pickle (config + warm state) {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update retrain] load_data {data_dir}", flush=True)
@@ -159,6 +211,9 @@ def cmd_retrain(args: argparse.Namespace) -> int:
 
     export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
     print(f"[weekly_update retrain] Wrote 5 JSON files under {out_dir}", flush=True)
+    _maybe_export_upcoming_events(
+        data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="retrain"
+    )
 
     if args.copy_to_mma_ai:
         _copy_to_mma_ai(out_dir, args.mma_ai_artifacts_dir)

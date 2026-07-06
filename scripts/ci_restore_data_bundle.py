@@ -37,6 +37,7 @@ FILES = (
     "data/espn_ingest_state.json",
     "data/espn_ingest_audit.json",
     "data/upcoming_cards.json",
+    "data/espn_upcoming_cards.json",
 )
 
 

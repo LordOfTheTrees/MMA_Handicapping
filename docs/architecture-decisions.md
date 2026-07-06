@@ -286,11 +286,123 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 **Decision.**
 
 1. **Four inference artifacts** — [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) emits **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** from a trained pickle (`--as-of-date` pins the ELO/style snapshot). Schema version string **`mma-handicapping-export-v1`** on each file.
-2. **Upcoming listings** — [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) maps **`data/upcoming_cards.json`** (**ADR-23**) → **`upcoming_events.json`** for the calendar/card UI (**ADR-23** ingestion remains training-free).
+2. **Upcoming listings** — [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) maps **`data/upcoming_cards.json`** (**ADR-23**) → **`upcoming_events.json`** for the calendar/card UI (**ADR-23** ingestion remains training-free). This export is now gated on a fresh-scrape signal rather than best-effort — see **ADR-25**.
 3. **Snapshot inference in this repo** — [`src/export/json_inference.py`](../src/export/json_inference.py) **`predict_proba_snapshot`**: reconstructs **point** `(6,)` probabilities from JSON **only**, with **`fight_date == as_of_date`** (JSON is a temporal **slice**, not full ELO history).
 4. **Harness** — [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py): strict **equality** pickle **`predict_proba_point_only`** vs **`predict_proba_snapshot`** after **`export_all`** to a temp dir (requires **`data/model.pkl`** or **`MMA_HARNESS_MODEL`**). [`tests/test_site_export_pages.py`](../tests/test_site_export_pages.py): **`JSON_exports/`** structural checks mapped to **`docs/website_elements.md`** page intents. Entrypoint **`python scripts/run_harness.py`** (`quick` / **`site`** / **`integration`** / full discover). Integration docs [`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md).
 
 **Consequences.** Production **truth** for point probabilities at the artifact snapshot date stays **defined by this repo** (`json_inference` + parity tests); **`mma.ai`** should match that math or deliberately document drift. Full **`PredictionResult`** (Cauchy, bootstrap intervals, hypothetical idle) stays pickle/API-side until replicated in deploy. Re-run **export** after every material **train**; run **`integration`** (+ **`site`**) before relying on **`JSON_exports/`** in git or copied to **`mma.ai/artifacts/`**.
+
+---
+
+## ADR-25: Upcoming-events export is gated on a fresh scrape signal, not best-effort
+
+**Context.** **ADR-23**/**ADR-24** established `data/upcoming_cards.json` (UFCStats) →
+`scripts/export_upcoming_events.py` → `upcoming_events.json` as the site's future-card
+pipeline, but `export_upcoming_events.py` was never actually invoked by
+`scripts/weekly_update.py` or by the `weekly-model-refresh.yml` / `monthly-model-retrain.yml`
+workflows — it was a standalone, manual-only script from the day it was introduced. Separately,
+[`refresh_data`](../src/data/refresh.py) treated a UFCStats Cloudflare block (`probe.blocked`)
+and any scrape exception as non-fatal, printing a message and returning a "successful"
+`RefreshResult` with no field indicating whether `upcoming_cards.json` was actually refreshed
+this run. Combined, these two gaps meant `upcoming_events.json` was never produced by CI at all,
+and even a local/manual export could silently re-ship a stale `upcoming_cards.json` (carried
+over via `ci_restore_data_bundle`) as if it were fresh — with zero errors or warnings anywhere
+in the pipeline. UFCStats has in fact Cloudflare-blocked every scheduled CI run for at least the
+five most recent weekly runs checked, so this was not a rare edge case.
+
+**Decision.** `RefreshResult` (`src/data/refresh.py`) gains `upcoming_cards_scraped: bool`,
+`True` only when `scrape_upcoming_cards_to_path` completes without the probe reporting
+`blocked` and without raising. `scripts/weekly_update.py` (`cmd_refresh`/`cmd_retrain`) exports
+`upcoming_events.json` — via the same `build_upcoming_events_doc` `export_upcoming_events.py`
+uses — immediately after the five inference JSONs, but **only** when this run's own
+`refresh_data()` call reported `upcoming_cards_scraped=True`; with `--no-scrape` (CI's
+split-step flow) it always skips, since no scrape happened in-process. `scripts/ci_try_refresh_data.py`
+writes the same signal as a GitHub Actions step output (`GITHUB_OUTPUT`), and both workflows add
+an `export_upcoming_events.py` step gated on it. A blocked or failed scrape now means *no*
+`upcoming_events.json` is (re-)produced that run — never a stale one silently passed off as
+current. (**ADR-26** extends this same gating mechanism to a second, independent source.)
+
+**Consequences.** `JSON_exports/upcoming_events.json` only exists in a run's bundle when UFCStats
+was actually reachable that run, so `sync-json-to-mma-ai.yml` only ships genuinely fresh data (a
+run with no fresh scrape simply doesn't touch the file already present downstream, rather than
+overwriting it with recycled data under a new timestamp). Operators/CI can distinguish "UFCStats
+blocked this run" from "upcoming cards genuinely unchanged" by checking for the presence of the
+step's output / the exported file, instead of only reading print statements in logs. Local runs
+without `--no-scrape` get this for free; the CI split-step flow needed the parallel
+`ci_try_refresh_data.py` → workflow step-output wiring since the scrape and the export happen in
+different process invocations there. See [`docs/ufc-com-upcoming-scrape-plan.md`](ufc-com-upcoming-scrape-plan.md)
+for the follow-on exploration (ufc.com / extended ESPN ingest) prompted by UFCStats' persistent block.
+
+---
+
+## ADR-26: ESPN `fightcenter` as the preferred upcoming-cards source
+
+**Context.** §0 of [`docs/ufc-com-upcoming-scrape-plan.md`](ufc-com-upcoming-scrape-plan.md)
+traced `refresh_espn_fights_incremental`'s existing, already-reliable-in-CI ingest path
+(`fetch_fightcenter(event_id)` → `_iter_competitions` → `_competition_is_final` filter in
+[`src/data/espn_ingest.py`](../src/data/espn_ingest.py)) and found that the `fightcenter`
+response already contains non-final (announced, unplayed) competitions — that is exactly what
+`_competition_is_final` filters out for the training path — with each competitor's ESPN athlete
+ID and display name embedded directly, no extra network calls needed. A user's live observation
+(ESPN's public Fight Center listing an upcoming McGregor/Holloway 2 card, weight class included)
+confirmed this at the product level, matching the code-level trace. Given UFCStats' upcoming-cards
+scrape has Cloudflare-blocked every checked CI run for over a month (ADR-25's context) while ESPN
+has a 5/5 success rate over the same runs, this reprioritizes ESPN above both fixing UFCStats and
+the not-yet-built ufc.com scraper.
+
+**Decision.**
+
+1. New module [`src/data/espn_upcoming.py`](../src/data/espn_upcoming.py), output-schema-compatible
+   with `ufcstats_upcoming.py`'s `upcoming_cards.json` (so `build_upcoming_events_doc` needs no
+   changes). `espn_ingest.py` gained a shared `_resolve_season_events` helper — the season/event
+   scan loop factored out of `_collect_incremental_events` — so the training-safe completed-events
+   filter (`event_date < today`, unchanged, ADR-05) and `espn_upcoming._collect_future_events`'s
+   inverted filter (`event_date >= today`) apply to the **same** resolved event list instead of
+   each re-implementing the fetch/parse loop; `_collect_incremental_events` itself is not touched
+   beyond calling the extracted helper. `_parse_future_bouts_from_fightcenter` reuses
+   `_iter_competitions`/`_competition_is_final` verbatim, keeping non-final competitions and
+   reading fighter names/ESPN IDs straight off each competitor's embedded `athlete` object.
+2. **Read-only fighter-ID resolution.** `_resolve_known_fighter_id` only checks the existing
+   crosswalk (`CrosswalkStore.athlete_to_fighter`) and existing profile name index — it never
+   provisions a new hex ID or writes to the crosswalk store, unlike the completed-fight path's
+   `resolve_fighter_id`. An announced bout can be cancelled or replaced before fight night, and
+   there is no confirmed result yet to justify minting permanent training-facing state; unresolved
+   (e.g. debuting) fighters ship name-only (`fighter_id=None`) until they actually fight.
+3. **Separate file, independent attempt.** `refresh_data()` (`src/data/refresh.py`) attempts
+   `scrape_espn_upcoming_cards_to_path` unconditionally — regardless of UFCStats' block status —
+   writing to `data/espn_upcoming_cards.json`, never `data/upcoming_cards.json`, so one source's
+   failure can never clobber the other's last-known-good data. `RefreshResult` gains
+   `espn_upcoming_cards_scraped: bool` alongside the existing `upcoming_cards_scraped`.
+4. **Consolidation at the export step, not a merge.** `weekly_update.py`'s
+   `_maybe_export_upcoming_events` and both CI workflows' `export_upcoming_events.py` step now
+   pick **whichever single source is fresh this run, ESPN preferred** — not a per-event/per-bout
+   merge of both files. `ci_try_refresh_data.py` exposes this as two step outputs
+   (`espn_upcoming_scraped`, `ufcstats_upcoming_scraped`, superseding ADR-25's single
+   `upcoming_scraped`); both `ci_restore_data_bundle.py` and the workflows' upload/restore file
+   lists include `data/espn_upcoming_cards.json`.
+5. **No duplicate ESPN requests within a run.** `refresh_data()` now constructs one `ESPNClient`
+   and passes it explicitly to `refresh_espn_fights_incremental`, `refresh_espn_profiles_incremental`,
+   `run_espn_ingest_audit`, and `scrape_espn_upcoming_cards_to_path` — previously each created its
+   own instance. `ESPNClient.get_json` also gained an in-memory memo (`_mem_cache`, checked before
+   the existing on-disk cache), so within one process the fights-incremental pass and the
+   upcoming-cards pass — which scan overlapping season/event-index URLs — never re-fetch over the
+   network (disk cache already prevented that) **and** never redundantly re-read/re-parse the same
+   cache file either. `tests/test_refresh_data_wiring.py` asserts the same client instance reaches
+   all three call sites.
+
+**Consequences.** The site's future-card data now has a second, independent, currently more
+reliable path that requires no new scraping infrastructure or bot-wall risk — it reuses API calls
+and helper functions the training ingest already exercises daily. Fighter IDs from this source are
+a strict subset of what the crosswalk already knows (never fabricated), so downstream consumers
+that already resolve `fighter_id` against `fighter_profiles.csv` degrade gracefully to name-only
+display for unresolved fighters rather than erroring. Weight-class availability pre-fight and
+`bout_order` display ordering (`_iter_competitions`'s natural card-dict order) are unverified
+against live data — flagged in `docs/ufc-com-upcoming-scrape-plan.md` and `test_espn_upcoming_parse.py`
+docstrings — and should be confirmed on a real run before treating either as guaranteed-correct.
+UFCStats' scrape path (ADR-23/ADR-25) is unchanged and still attempted every run; it becomes the
+fallback rather than the primary, and its richer data (hex IDs already resolved, canonical
+`event_url`/`location`) is still preferred implicitly whenever ESPN's attempt fails but UFCStats'
+doesn't.
 
 ---
 
