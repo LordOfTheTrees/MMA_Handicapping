@@ -16,6 +16,7 @@ from typing import Optional
 from .espn_audit import format_audit_log_lines, run_espn_ingest_audit
 from .espn_ingest import refresh_espn_fights_incremental
 from .espn_profiles import refresh_espn_profiles_incremental
+from .espn_upcoming import DEFAULT_ESPN_UPCOMING_CARDS_JSON, scrape_espn_upcoming_cards_to_path
 from .ufcstats_profiles import scrape_fighter_profiles_to_csv
 from .ufcstats_scraper import DEFAULT_UFCSTATS_FIGHTS_CSV, probe_completed_events_index
 from .ufcstats_upcoming import DEFAULT_UPCOMING_CARDS_JSON, scrape_upcoming_cards_to_path
@@ -33,6 +34,7 @@ class RefreshResult:
     audit_reject_count: int = 0
     audit_warn_count: int = 0
     upcoming_cards_scraped: bool = False
+    espn_upcoming_cards_scraped: bool = False
 
 
 def _count_fight_rows(path: Path) -> int:
@@ -50,16 +52,22 @@ def refresh_data(
     require_fight_updates: bool = False,
     fetch_rookie_audit: bool = True,
     ufcstats_gap_fill: bool = True,
+    espn_upcoming: bool = True,
     espn_max_events: Optional[int] = None,
     espn_max_competitions: Optional[int] = None,
     espn_verbose: bool = True,
 ) -> RefreshResult:
-    """Refresh fights (ESPN), profiles, audit, then UFCStats gap-fill when reachable.
+    """Refresh fights (ESPN), profiles, audit, ESPN upcoming cards, then UFCStats gap-fill.
 
-    The fights CSV uses only **completed** events (see ADR-05). ``upcoming_cards.json``
-    still uses UFCStats when reachable; otherwise the prior file is left in place, and
-    :attr:`RefreshResult.upcoming_cards_scraped` is ``False`` so callers (``weekly_update.py``,
-    CI) know not to re-export a stale ``upcoming_events.json`` from it.
+    The fights CSV uses only **completed** events (see ADR-05). ``espn_upcoming_cards.json``
+    (ESPN's ``fightcenter`` payload, already-reliable in CI — see
+    ``docs/ufc-com-upcoming-scrape-plan.md`` §0) is attempted independently of UFCStats and
+    written to its own file so a bad UFCStats scrape can never clobber it or vice versa.
+    ``upcoming_cards.json`` still uses UFCStats when reachable; otherwise the prior file is
+    left in place. Either way, :attr:`RefreshResult.upcoming_cards_scraped` /
+    :attr:`RefreshResult.espn_upcoming_cards_scraped` are ``False`` when that source didn't
+    produce fresh data this run, so callers (``weekly_update.py``, CI) know not to re-export a
+    stale ``upcoming_events.json`` from it.
 
     Raises :class:`DataRefreshError` when ingest fails, ``require_fight_updates`` is set
     but zero fights changed, or audit rejects and ``fail_on_audit_reject`` is true.
@@ -115,6 +123,15 @@ def refresh_data(
                 f"See {data_dir / 'espn_ingest_audit.json'}."
             )
 
+    espn_upcoming_cards_scraped = False
+    if espn_upcoming:
+        print("[refresh] ESPN upcoming cards ...", flush=True)
+        try:
+            scrape_espn_upcoming_cards_to_path(data_dir / DEFAULT_ESPN_UPCOMING_CARDS_JSON, data_dir)
+            espn_upcoming_cards_scraped = True
+        except Exception as e:
+            print(f"[refresh] ESPN upcoming cards scrape failed: {e}", flush=True)
+
     upcoming_cards_scraped = False
     if ufcstats_gap_fill:
         probe = probe_completed_events_index()
@@ -131,6 +148,7 @@ def refresh_data(
                 audit_reject_count=reject_count,
                 audit_warn_count=warn_count,
                 upcoming_cards_scraped=False,
+                espn_upcoming_cards_scraped=espn_upcoming_cards_scraped,
             )
 
         print("[refresh] UFCStats fighter profiles (gap-fill) ...", flush=True)
@@ -151,4 +169,5 @@ def refresh_data(
         audit_reject_count=reject_count,
         audit_warn_count=warn_count,
         upcoming_cards_scraped=upcoming_cards_scraped,
+        espn_upcoming_cards_scraped=espn_upcoming_cards_scraped,
     )

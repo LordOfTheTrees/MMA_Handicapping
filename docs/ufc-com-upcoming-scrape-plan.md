@@ -1,11 +1,21 @@
 # UFC.com upcoming-card ingest — exploration & design plan
 
-**Status:** Not implemented. Exploration only — write-up so work can proceed locally
-(this sandbox's outbound egress policy blocks `ufc.com`, `ufcstats.com`, and even
-ESPN's API directly — see "Why this is a planning doc, not code" below).
+**Status:** §0 (ESPN `fightcenter` future-events path) **implemented** — see
+[`src/data/espn_upcoming.py`](../src/data/espn_upcoming.py) and **ADR-26** in
+[`architecture-decisions.md`](architecture-decisions.md). §2 (ufc.com scraper) is
+**still exploration only, not implemented** — write-up so that work can proceed
+locally (this sandbox's outbound egress policy blocks `ufc.com` directly — see "Why
+this is a planning doc, not code" below). With ESPN's path shipped and reliable,
+ufc.com is now explicitly a lower-priority parallel/fallback effort, not urgent.
 
-Related: [`docs/todo.md`](todo.md) P0.1 ("UFC.com (official) upcoming"), **ADR-23**
-in [`architecture-decisions.md`](architecture-decisions.md).
+Related: [`docs/todo.md`](todo.md) P0.1 ("UFC.com (official) upcoming"), **ADR-23**,
+**ADR-25**, **ADR-26** in [`architecture-decisions.md`](architecture-decisions.md).
+
+**Still open from §0, pending a live run:** whether `bout_order` (derived from
+`_iter_competitions`'s natural card-dict order) matches main-card-first display
+intent, and confirmation that weight class is populated pre-fight in the live
+`fightcenter` payload (the McGregor/Holloway 2 observation that prompted this
+strongly suggests yes, but hasn't been checked field-by-field against actual JSON).
 
 ---
 

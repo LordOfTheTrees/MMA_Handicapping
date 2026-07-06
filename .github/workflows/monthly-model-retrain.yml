@@ -3,8 +3,9 @@
 # Same artifact forwarding as weekly: restore ``mma-model-state`` / upload after success.
 # Cold start: full ``train`` + ``export_artifacts`` (matches initial CI bootstrap).
 # ``upcoming_events.json`` is only exported when ``ci_try_refresh_data`` reports a fresh
-# UFCStats upcoming-cards scrape this run (``espn_refresh.outputs.upcoming_scraped``) — otherwise
-# UFCStats was Cloudflare-blocked and ``data/upcoming_cards.json`` is stale, so we skip re-shipping it.
+# upcoming-cards scrape this run (``espn_refresh.outputs.espn_upcoming_scraped`` /
+# ``ufcstats_upcoming_scraped``) — ESPN preferred (reliable in CI), UFCStats as fallback —
+# otherwise both are stale/blocked and we skip re-shipping recycled data.
 #
 # Re-hyperparameterization stays local.
 #
@@ -82,9 +83,17 @@ jobs:
           python main.py --model-path ./data/model.pkl train --data-dir ./data --no-scrape --no-holdout
           python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
 
-      - name: Export upcoming events JSON (only when UFCStats scrape completed this run)
-        if: steps.espn_refresh.outputs.upcoming_scraped == 'true'
-        run: python scripts/export_upcoming_events.py --cards ./data/upcoming_cards.json --out ./JSON_exports/upcoming_events.json
+      - name: Export upcoming events JSON (prefer ESPN; fall back to UFCStats)
+        if: >-
+          steps.espn_refresh.outputs.espn_upcoming_scraped == 'true' ||
+          steps.espn_refresh.outputs.ufcstats_upcoming_scraped == 'true'
+        run: |
+          if [ "${{ steps.espn_refresh.outputs.espn_upcoming_scraped }}" = "true" ]; then
+            SRC=./data/espn_upcoming_cards.json
+          else
+            SRC=./data/upcoming_cards.json
+          fi
+          python scripts/export_upcoming_events.py --cards "$SRC" --out ./JSON_exports/upcoming_events.json
 
       - name: Upload model pickle for next run (mma-model-state)
         uses: actions/upload-artifact@v4
@@ -104,5 +113,6 @@ jobs:
             data/espn_crosswalk_fighters.csv
             data/espn_ingest_state.json
             data/upcoming_cards.json
+            data/espn_upcoming_cards.json
             JSON_exports/
           if-no-files-found: warn
