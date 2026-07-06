@@ -2,6 +2,9 @@
 # Full history rescrape is manual/local only — not automated here.
 # Same artifact forwarding as weekly: restore ``mma-model-state`` / upload after success.
 # Cold start: full ``train`` + ``export_artifacts`` (matches initial CI bootstrap).
+# ``upcoming_events.json`` is only exported when ``ci_try_refresh_data`` reports a fresh
+# UFCStats upcoming-cards scrape this run (``espn_refresh.outputs.upcoming_scraped``) — otherwise
+# UFCStats was Cloudflare-blocked and ``data/upcoming_cards.json`` is stale, so we skip re-shipping it.
 #
 # Re-hyperparameterization stays local.
 #
@@ -63,6 +66,7 @@ jobs:
         run: python scripts/ci_restore_data_bundle.py
 
       - name: Refresh fight data (ESPN incremental; fail if no updates)
+        id: espn_refresh
         if: >-
           github.event_name != 'workflow_dispatch' || inputs.skip_espn_refresh != true
         run: python scripts/ci_try_refresh_data.py
@@ -77,6 +81,10 @@ jobs:
         run: |
           python main.py --model-path ./data/model.pkl train --data-dir ./data --no-scrape --no-holdout
           python scripts/export_artifacts.py --model-path ./data/model.pkl --out-dir ./JSON_exports
+
+      - name: Export upcoming events JSON (only when UFCStats scrape completed this run)
+        if: steps.espn_refresh.outputs.upcoming_scraped == 'true'
+        run: python scripts/export_upcoming_events.py --cards ./data/upcoming_cards.json --out ./JSON_exports/upcoming_events.json
 
       - name: Upload model pickle for next run (mma-model-state)
         uses: actions/upload-artifact@v4

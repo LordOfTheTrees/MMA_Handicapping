@@ -10,11 +10,16 @@ CI path (weekly/monthly workflows):
 
 Use ``--allow-stale-data`` only for manual/debug runs when you accept no new data.
 
+Writes the ``upcoming_scraped`` step output (``true``/``false``) so a later workflow step
+can gate ``export_upcoming_events.py`` on whether UFCStats actually completed this run,
+instead of re-exporting a stale ``upcoming_cards.json`` carried over from a prior run.
+
 Documented in **docs/BACKEND_PIPELINE_INTEGRATION.md** and **docs/data-sources-espn.md**.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +28,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.refresh import DataRefreshError, refresh_data  # noqa: E402
+
+
+def _write_output(name: str, value: str) -> None:
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{name}={value}\n")
 
 
 def main() -> int:
@@ -40,7 +52,7 @@ def main() -> int:
 
     try:
         print("[ci_refresh] refresh_data (ESPN + audit) ...", flush=True)
-        refresh_data(
+        result = refresh_data(
             data_dir,
             run_audit=True,
             fail_on_audit_reject=True,
@@ -51,12 +63,14 @@ def main() -> int:
         print("::group::Data refresh failed", flush=True)
         print(str(e), flush=True)
         print("::endgroup::", flush=True)
+        _write_output("upcoming_scraped", "false")
         if args.allow_stale_data:
             print(f"::warning::--allow-stale-data: continuing without refresh ({e}).", flush=True)
             return 0
         print(f"::error::{e}", file=sys.stderr)
         return 1
 
+    _write_output("upcoming_scraped", "true" if result.upcoming_cards_scraped else "false")
     print("[ci_refresh] Ready.", flush=True)
     return 0
 

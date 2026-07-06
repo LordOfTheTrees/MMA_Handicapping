@@ -9,7 +9,15 @@ Weekly pipeline: reload data, rebuild ELO, refresh or refit regression state, ex
 
 **retrain (steps 1–6)** — Same data + ELO path, then full ``train_regression()`` (new **W**,
 bootstrap, artifact audit), saves the pickle, then exports all five JSONs. Step **6** is the
-multinomial refit; upcoming cards stay ``export_upcoming_events.py``.
+multinomial refit.
+
+**Upcoming events** — After the five JSONs, both subcommands also write ``upcoming_events.json``
+via ``export_upcoming_events``'s ``build_upcoming_events_doc``, but only when this run actually
+completed a fresh UFCStats upcoming-cards scrape (``RefreshResult.upcoming_cards_scraped``). This
+avoids re-shipping a stale ``upcoming_cards.json`` carried over from a prior run when UFCStats is
+Cloudflare-blocked. With ``--no-scrape`` (CI's split-step flow), this script never scrapes itself,
+so the CI workflow gates a separate ``export_upcoming_events.py`` step on ``ci_try_refresh_data``'s
+``upcoming_scraped`` step output instead.
 
 **Hyperparameters (both subcommands):** Uses the ``Config`` already stored in the loaded pickle
 (Huber ``delta``, ``l2_lambda``, L-BFGS limits, bootstrap count/seed, ELO fields, holdout dates,
@@ -53,13 +61,16 @@ if str(SCRIPTS) not in sys.path:
 
 import export_artifacts as export_artifacts_mod  # noqa: E402
 from src.data.refresh import DataRefreshError, refresh_data  # noqa: E402
+from src.data.ufcstats_upcoming import DEFAULT_UPCOMING_CARDS_JSON  # noqa: E402
+from src.export.upcoming_events_doc import build_upcoming_events_doc  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
 
-def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) -> None:
+def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) -> bool:
+    """Returns whether this call freshly scraped UFCStats upcoming cards (export gating)."""
     if args.no_scrape:
         print(f"[weekly_update {label}] skip refresh_data (--no-scrape)", flush=True)
-        return
+        return False
     print(f"[weekly_update {label}] refresh_data (ESPN + audit) ...", flush=True)
     try:
         result = refresh_data(
@@ -86,6 +97,27 @@ def _maybe_refresh_csvs(data_dir: Path, args: argparse.Namespace, label: str) ->
         f"(see [espn debut] lines above)",
         flush=True,
     )
+    return result.upcoming_cards_scraped
+
+
+def _maybe_export_upcoming_events(data_dir: Path, out_dir: Path, upcoming_scraped: bool, label: str) -> None:
+    if not upcoming_scraped:
+        print(
+            f"[weekly_update {label}] skip upcoming_events export "
+            "(no fresh UFCStats upcoming-cards scrape this run)",
+            flush=True,
+        )
+        return
+    cards_path = data_dir / DEFAULT_UPCOMING_CARDS_JSON
+    if not cards_path.is_file():
+        print(f"[weekly_update {label}] skip upcoming_events export ({cards_path} missing)", flush=True)
+        return
+    cards = json.loads(cards_path.read_text(encoding="utf-8"))
+    doc = build_upcoming_events_doc(cards)
+    out_path = out_dir / "upcoming_events.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    print(f"[weekly_update {label}] Wrote {out_path}", flush=True)
 
 
 def _copy_to_mma_ai(out_dir: Path, mma_ai_dir: Path | None) -> None:
@@ -103,7 +135,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args, "refresh")
+    upcoming_scraped = _maybe_refresh_csvs(data_dir, args, "refresh")
     print(f"[weekly_update refresh] load pickle {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update refresh] load_data {data_dir}", flush=True)
@@ -122,6 +154,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
 
     export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
     print(f"[weekly_update refresh] Wrote 5 JSON files under {out_dir}", flush=True)
+    _maybe_export_upcoming_events(data_dir, out_dir, upcoming_scraped, "refresh")
 
     if args.save_model:
         pred.save(model_path)
@@ -137,7 +170,7 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir).resolve()
     out_dir = Path(args.out_dir).resolve()
 
-    _maybe_refresh_csvs(data_dir, args, "retrain")
+    upcoming_scraped = _maybe_refresh_csvs(data_dir, args, "retrain")
     print(f"[weekly_update retrain] load pickle (config + warm state) {model_path}", flush=True)
     pred = MMAPredictor.load(model_path)
     print(f"[weekly_update retrain] load_data {data_dir}", flush=True)
@@ -159,6 +192,7 @@ def cmd_retrain(args: argparse.Namespace) -> int:
 
     export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
     print(f"[weekly_update retrain] Wrote 5 JSON files under {out_dir}", flush=True)
+    _maybe_export_upcoming_events(data_dir, out_dir, upcoming_scraped, "retrain")
 
     if args.copy_to_mma_ai:
         _copy_to_mma_ai(out_dir, args.mma_ai_artifacts_dir)

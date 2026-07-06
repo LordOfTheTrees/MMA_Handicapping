@@ -32,6 +32,7 @@ class RefreshResult:
     audit_passed: bool
     audit_reject_count: int = 0
     audit_warn_count: int = 0
+    upcoming_cards_scraped: bool = False
 
 
 def _count_fight_rows(path: Path) -> int:
@@ -56,7 +57,9 @@ def refresh_data(
     """Refresh fights (ESPN), profiles, audit, then UFCStats gap-fill when reachable.
 
     The fights CSV uses only **completed** events (see ADR-05). ``upcoming_cards.json``
-    still uses UFCStats when reachable; otherwise the prior file is left in place.
+    still uses UFCStats when reachable; otherwise the prior file is left in place, and
+    :attr:`RefreshResult.upcoming_cards_scraped` is ``False`` so callers (``weekly_update.py``,
+    CI) know not to re-export a stale ``upcoming_events.json`` from it.
 
     Raises :class:`DataRefreshError` when ingest fails, ``require_fight_updates`` is set
     but zero fights changed, or audit rejects and ``fail_on_audit_reject`` is true.
@@ -112,6 +115,7 @@ def refresh_data(
                 f"See {data_dir / 'espn_ingest_audit.json'}."
             )
 
+    upcoming_cards_scraped = False
     if ufcstats_gap_fill:
         probe = probe_completed_events_index()
         if probe.blocked:
@@ -126,6 +130,7 @@ def refresh_data(
                 audit_passed=audit_passed,
                 audit_reject_count=reject_count,
                 audit_warn_count=warn_count,
+                upcoming_cards_scraped=False,
             )
 
         print("[refresh] UFCStats fighter profiles (gap-fill) ...", flush=True)
@@ -135,6 +140,7 @@ def refresh_data(
         print("[refresh] UFCStats upcoming cards ...", flush=True)
         try:
             scrape_upcoming_cards_to_path(data_dir / DEFAULT_UPCOMING_CARDS_JSON)
+            upcoming_cards_scraped = True
         except Exception as e:
             print(f"[refresh] Upcoming cards scrape skipped: {e}", flush=True)
 
@@ -144,4 +150,5 @@ def refresh_data(
         audit_passed=audit_passed,
         audit_reject_count=reject_count,
         audit_warn_count=warn_count,
+        upcoming_cards_scraped=upcoming_cards_scraped,
     )
