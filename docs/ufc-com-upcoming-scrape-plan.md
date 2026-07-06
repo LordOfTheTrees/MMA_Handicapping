@@ -35,25 +35,68 @@ future) and then explicitly **discards** anything dated today-or-later. That's a
 deliberate choice tied to training-data hygiene (mirrors ADR-05: only completed
 fights belong in `ufcstats_fights.csv`), **not** a limitation of the ESPN endpoint.
 
-**Unverified but likely, pending a local check:** `fetch_event(event_ref)` on a future
-event probably still returns its competitions (booked matchups) even though those
-competitions have no result yet — ESPN's site surfaces "announced" fight cards this
-way. If true, a **new, separate** function (not touching
-`_collect_incremental_events`, which must stay training-safe) could resolve the same
-season index, keep only `event_date >= today`, and pull competitor names from each
-future event's competitions — reusing `ESPNClient.fetch_event` /
-`list_competitor_refs` / `fetch_competitor` that already exist.
+**Confirmed, not just hypothesized** — two independent signals now agree:
 
-**Why this matters for prioritization:** ESPN has a 100% success rate across every
-CI run checked (5/5 recent weekly runs) — zero Cloudflare issues — while UFCStats has
-failed every single one of those same runs. If ESPN's future-event data holds up,
-it's a lower-risk, lower-effort win than a brand-new ufc.com scraper, and should be
-tried first. Treat §2 below (ufc.com) as a **parallel/fallback** effort, not a
-replacement for checking this.
+1. **User observation:** ESPN's public Fight Center page currently lists McGregor
+   vs. Holloway 2 as an upcoming fight.
+2. **The production code itself already relies on this.** `refresh_espn_fights_incremental`
+   (`src/data/espn_ingest.py:262`) calls `espn.fetch_fightcenter(event_id)` for every
+   event it processes. That response has a `"cards"` dict, and `_iter_competitions`
+   (line 150) walks every `card["competitions"]` entry regardless of status. The very
+   next thing the ingest loop does is:
 
-**Action (local, since this sandbox can't reach ESPN's API either — see below):**
-fetch one `event_ref` for a known future event and confirm competitions/competitors
-are populated before writing any code against this hypothesis.
+   ```python
+   comps = _iter_competitions(fightcenter)
+   for comp in comps:
+       ...
+       if not _competition_is_final(comp):
+           continue
+   ```
+
+   i.e. **the fightcenter payload already contains non-final (scheduled/announced)
+   competitions** — that's exactly why this filter exists. And each competitor
+   entry embeds `athlete.id` / `athlete.displayName` directly (see
+   `_athlete_id_from_competitor` / `parse_competitor_side` in
+   `src/data/espn_normalize.py`), so a bout's fighter names and ESPN athlete IDs are
+   available straight off the *same* `fetch_fightcenter` call already used in
+   production — **no new endpoint, no extra per-fighter network round trip.**
+
+**Revised plan for a future-events path** (smaller than originally scoped above):
+
+1. Resolve event refs for the current (and next) season year via the existing
+   `ESPNClient.list_event_refs` / `fetch_event` — same calls as today, just keep
+   `event_date >= today` instead of discarding it. This must be a **new, separate**
+   function, not a change to `_collect_incremental_events`, which must stay
+   training-safe (ADR-05) and untouched.
+2. For each future event, call `fetch_fightcenter(event_id)` — the same call
+   `refresh_espn_fights_incremental` already makes for completed events.
+3. Reuse `_iter_competitions(fightcenter)` as-is. Instead of skipping non-final
+   competitions, keep them (skip final ones defensively — shouldn't occur for a
+   future event, but don't assume).
+4. Pull `fighter_a_name`/`fighter_b_name` + ESPN athlete IDs straight from each
+   competitor's embedded `athlete` object (`_athlete_id_from_competitor`,
+   the name fields `parse_competitor_side` already reads) — no `fetch_competition`,
+   `fetch_competition_status`, or `list_competitor_refs`/`fetch_competitor` calls
+   needed, since those are only required for **final** stats we don't have or need
+   for an announced-but-unplayed bout.
+5. Weight class: check whatever field the completed-bout path reads for this
+   (`weight_class_from_note` in `espn_normalize.py`) — confirm locally whether
+   that field is populated pre-fight or only assigned closer to/at weigh-ins.
+
+**Why this reprioritizes the whole plan:** this is now a **known, already-integrated
+API call** (proven reliable — 5/5 recent CI runs, zero Cloudflare issues) returning
+data whose shape our own code already parses in production, just filtered out one
+step later than needed. That is a meaningfully smaller, lower-risk, lower-effort
+change than either fixing UFCStats' bot wall or standing up a brand-new ufc.com HTML
+scraper against an untested site. **Recommendation: build and verify this first**;
+keep ufc.com (§2 below) as a lower-priority parallel/fallback source, not the primary
+next step.
+
+**Remaining local verification (still needed before writing production code):**
+confirm `fetch_fightcenter` for a known future event_id (e.g. the McGregor/Holloway 2
+card) actually returns that bout under `cards[...].competitions[]` with `athlete`
+names populated, and check whether weight class is present pre-fight. This sandbox
+still can't make that call itself (see below), so it needs a local run.
 
 ---
 
@@ -78,7 +121,7 @@ written against assumed selectors/response shapes.
 | Source | CI reliability (observed) | Data richness | Effort | Risk |
 |---|---|---|---|---|
 | **UFCStats** (current) | 0/5 recent weekly runs — Cloudflare-blocked every time | Full: hex fighter IDs, weight class, bout order | Already built | Site-side bot wall shows no sign of clearing |
-| **ESPN API, extended** (§0) | 5/5 — proven reliable channel | Needs local check: matchups yes, but ESPN IDs only (crosswalk to hex IDs already exists) | Small — reuses `ESPNClient`, new non-training code path | Untested for future events specifically; ESPN could change the schedule endpoint |
+| **ESPN API, extended** (§0) | 5/5 — proven reliable channel | Matchups + ESPN athlete IDs confirmed present in the same `fetch_fightcenter` payload production already parses (crosswalk to hex IDs already exists); weight-class pre-fight availability still to confirm | Smallest — reuses `ESPNClient.list_event_refs`/`fetch_event`/`fetch_fightcenter` and `_iter_competitions` verbatim, new non-training code path only | Low — same endpoint already relied on daily; main open item is weight-class field timing, not reachability |
 | **ufc.com** (§2, this doc) | Unknown — untested from any environment so far | Names + weight class; **no** fighter IDs of any kind (see §2.3) | Medium — new module, new parser, new tests | Unknown bot-protection posture; even if your laptop can reach it, GitHub Actions' shared runner IPs might get the same Cloudflare treatment UFCStats gives them (verify separately — do not assume local success implies CI success) |
 
 Recommended sequencing: verify §0 locally first (cheap, high-confidence win if it
