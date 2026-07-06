@@ -286,11 +286,53 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 **Decision.**
 
 1. **Four inference artifacts** — [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) emits **`model_weights.json`**, **`elo_states.json`**, **`style_axes.json`**, **`fighter_profiles.json`** from a trained pickle (`--as-of-date` pins the ELO/style snapshot). Schema version string **`mma-handicapping-export-v1`** on each file.
-2. **Upcoming listings** — [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) maps **`data/upcoming_cards.json`** (**ADR-23**) → **`upcoming_events.json`** for the calendar/card UI (**ADR-23** ingestion remains training-free).
+2. **Upcoming listings** — [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) maps **`data/upcoming_cards.json`** (**ADR-23**) → **`upcoming_events.json`** for the calendar/card UI (**ADR-23** ingestion remains training-free). This export is now gated on a fresh-scrape signal rather than best-effort — see **ADR-25**.
 3. **Snapshot inference in this repo** — [`src/export/json_inference.py`](../src/export/json_inference.py) **`predict_proba_snapshot`**: reconstructs **point** `(6,)` probabilities from JSON **only**, with **`fight_date == as_of_date`** (JSON is a temporal **slice**, not full ELO history).
 4. **Harness** — [`tests/test_artifact_parity.py`](../tests/test_artifact_parity.py): strict **equality** pickle **`predict_proba_point_only`** vs **`predict_proba_snapshot`** after **`export_all`** to a temp dir (requires **`data/model.pkl`** or **`MMA_HARNESS_MODEL`**). [`tests/test_site_export_pages.py`](../tests/test_site_export_pages.py): **`JSON_exports/`** structural checks mapped to **`docs/website_elements.md`** page intents. Entrypoint **`python scripts/run_harness.py`** (`quick` / **`site`** / **`integration`** / full discover). Integration docs [`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md).
 
 **Consequences.** Production **truth** for point probabilities at the artifact snapshot date stays **defined by this repo** (`json_inference` + parity tests); **`mma.ai`** should match that math or deliberately document drift. Full **`PredictionResult`** (Cauchy, bootstrap intervals, hypothetical idle) stays pickle/API-side until replicated in deploy. Re-run **export** after every material **train**; run **`integration`** (+ **`site`**) before relying on **`JSON_exports/`** in git or copied to **`mma.ai/artifacts/`**.
+
+---
+
+## ADR-25: Upcoming-events export is gated on a fresh scrape signal, not best-effort
+
+**Context.** **ADR-23**/**ADR-24** established `data/upcoming_cards.json` (UFCStats) →
+`scripts/export_upcoming_events.py` → `upcoming_events.json` as the site's future-card
+pipeline, but `export_upcoming_events.py` was never actually invoked by
+`scripts/weekly_update.py` or by the `weekly-model-refresh.yml` / `monthly-model-retrain.yml`
+workflows — it was a standalone, manual-only script from the day it was introduced. Separately,
+[`refresh_data`](../src/data/refresh.py) treated a UFCStats Cloudflare block (`probe.blocked`)
+and any scrape exception as non-fatal, printing a message and returning a "successful"
+`RefreshResult` with no field indicating whether `upcoming_cards.json` was actually refreshed
+this run. Combined, these two gaps meant `upcoming_events.json` was never produced by CI at all,
+and even a local/manual export could silently re-ship a stale `upcoming_cards.json` (carried
+over via `ci_restore_data_bundle`) as if it were fresh — with zero errors or warnings anywhere
+in the pipeline. UFCStats has in fact Cloudflare-blocked every scheduled CI run for at least the
+five most recent weekly runs checked, so this was not a rare edge case.
+
+**Decision.** `RefreshResult` (`src/data/refresh.py`) gains `upcoming_cards_scraped: bool`,
+`True` only when `scrape_upcoming_cards_to_path` completes without the probe reporting
+`blocked` and without raising. `scripts/weekly_update.py` (`cmd_refresh`/`cmd_retrain`) exports
+`upcoming_events.json` — via the same `build_upcoming_events_doc` `export_upcoming_events.py`
+uses — immediately after the five inference JSONs, but **only** when this run's own
+`refresh_data()` call reported `upcoming_cards_scraped=True`; with `--no-scrape` (CI's
+split-step flow) it always skips, since no scrape happened in-process. `scripts/ci_try_refresh_data.py`
+writes the same signal as a `upcoming_scraped` GitHub Actions step output (`GITHUB_OUTPUT`), and
+both workflows add an `export_upcoming_events.py` step gated on
+`steps.espn_refresh.outputs.upcoming_scraped == 'true'`. A blocked or failed scrape now means
+*no* `upcoming_events.json` is (re-)produced that run — never a stale one silently passed off as
+current.
+
+**Consequences.** `JSON_exports/upcoming_events.json` only exists in a run's bundle when UFCStats
+was actually reachable that run, so `sync-json-to-mma-ai.yml` only ships genuinely fresh data (a
+run with no fresh scrape simply doesn't touch the file already present downstream, rather than
+overwriting it with recycled data under a new timestamp). Operators/CI can distinguish "UFCStats
+blocked this run" from "upcoming cards genuinely unchanged" by checking for the presence of the
+step's output / the exported file, instead of only reading print statements in logs. Local runs
+without `--no-scrape` get this for free; the CI split-step flow needed the parallel
+`ci_try_refresh_data.py` → workflow step-output wiring since the scrape and the export happen in
+different process invocations there. See [`docs/ufc-com-upcoming-scrape-plan.md`](ufc-com-upcoming-scrape-plan.md)
+for the follow-on exploration (ufc.com / extended ESPN ingest) prompted by UFCStats' persistent block.
 
 ---
 
