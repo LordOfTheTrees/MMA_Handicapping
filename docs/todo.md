@@ -25,7 +25,7 @@ Steps are ordered chronologically. Detail decreases the further out they are.
 **Paths (pursue in parallel):**
 
 - [ ] **UFCStats HTTP** — Restore completed-events + fight-details access from CI and laptop (`curl_cffi`, cookies, impersonation updates, or approved proxy if needed).
-- [ ] **UFC.com (official) upcoming** — New or extended ingest for **scheduled** cards/bouts (names, ids, weight class) for **`upcoming_cards.json`** / **`upcoming_events.json`**. Training CSVs stay separate (**ADR-23**). Does not by itself fix historical fight **stats**.
+- [ ] **UFC.com (official) upcoming** — New or extended ingest for **scheduled** cards/bouts (names, ids, weight class) for **`upcoming_cards.json`** / **`upcoming_events.json`**. Training CSVs stay separate (**ADR-23**). Does not by itself fix historical fight **stats**. Design/rationale write-up: [`docs/ufc-com-upcoming-scrape-plan.md`](ufc-com-upcoming-scrape-plan.md) — also covers extending ESPN's already-reliable API to future events as a lower-effort parallel path.
 - [ ] **Supplemental finished-fight source** — Optional tier-2/3 or manual CSV for **new** results only if UFCStats remains blocked.
 - [x] **Bridge** — `ci_restore_*` scripts, **`allow_stale_data`** on manual workflow dispatch, scraper guard against wiping non-empty CSV on bot wall; [`docs/BACKEND_PIPELINE_INTEGRATION.md`](BACKEND_PIPELINE_INTEGRATION.md) disaster recovery.
 
