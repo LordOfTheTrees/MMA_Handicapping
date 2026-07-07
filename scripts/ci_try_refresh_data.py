@@ -66,6 +66,12 @@ def main() -> int:
         print("::endgroup::", flush=True)
         _write_output("espn_upcoming_scraped", "false")
         _write_output("ufcstats_upcoming_scraped", "false")
+        print(
+            "[ci_refresh] upcoming-cards status: espn_upcoming_scraped=false "
+            "ufcstats_upcoming_scraped=false (refresh_data raised before either was attempted "
+            "or recorded) -> upcoming_events.json export will be skipped this run.",
+            flush=True,
+        )
         if args.allow_stale_data:
             print(f"::warning::--allow-stale-data: continuing without refresh ({e}).", flush=True)
             return 0
@@ -74,6 +80,19 @@ def main() -> int:
 
     _write_output("espn_upcoming_scraped", "true" if result.espn_upcoming_cards_scraped else "false")
     _write_output("ufcstats_upcoming_scraped", "true" if result.upcoming_cards_scraped else "false")
+    if result.espn_upcoming_cards_scraped:
+        upcoming_status = "espn_upcoming_scraped=true -> upcoming_events.json will use ESPN this run."
+    elif result.upcoming_cards_scraped:
+        upcoming_status = (
+            "espn_upcoming_scraped=false, ufcstats_upcoming_scraped=true "
+            "-> upcoming_events.json will fall back to UFCStats this run."
+        )
+    else:
+        upcoming_status = (
+            "espn_upcoming_scraped=false, ufcstats_upcoming_scraped=false "
+            "-> upcoming_events.json export will be skipped this run (both sources stale/blocked)."
+        )
+    print(f"[ci_refresh] upcoming-cards status: {upcoming_status}", flush=True)
     print("[ci_refresh] Ready.", flush=True)
     return 0
 
