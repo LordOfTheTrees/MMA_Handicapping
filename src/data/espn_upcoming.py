@@ -169,6 +169,17 @@ def scrape_espn_upcoming_cards(
             }
         )
 
+    n_bouts = sum(len(ev["bouts"]) for ev in events_out)
+    n_resolved = sum(
+        1 for ev in events_out for b in ev["bouts"] if b["fighter_a_id"] and b["fighter_b_id"]
+    )
+    print(
+        f"[espn upcoming] {len(events_out)} future event(s), {n_bouts} announced bout(s) "
+        f"({n_resolved} with both fighters resolved to an existing fighter_id, "
+        f"{n_bouts - n_resolved} name-only)",
+        flush=True,
+    )
+
     scraped_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     return {
         "schema_version": 1,

@@ -40,12 +40,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     )
     args = p.parse_args(argv)
 
-    cards = json.loads(Path(args.cards).read_text(encoding="utf-8"))
+    cards_path = Path(args.cards)
+    cards = json.loads(cards_path.read_text(encoding="utf-8"))
     doc = build_upcoming_events_doc(cards)
     outp = Path(args.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {outp.resolve()}", flush=True)
+
+    n_events = len(doc.get("events", []))
+    n_bouts = sum(len(ev.get("bouts", [])) for ev in doc.get("events", []))
+    print(
+        f"Wrote {outp.resolve()} ({n_events} event(s), {n_bouts} bout(s), "
+        f"source={cards_path}, upstream scraped_at={cards.get('scraped_at')!r})",
+        flush=True,
+    )
 
     if args.copy_to_mma_ai:
         _scripts = Path(__file__).resolve().parent

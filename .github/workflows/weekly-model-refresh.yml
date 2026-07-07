@@ -112,8 +112,10 @@ jobs:
         run: |
           if [ "${{ steps.espn_refresh.outputs.espn_upcoming_scraped }}" = "true" ]; then
             SRC=./data/espn_upcoming_cards.json
+            echo "[export upcoming] espn_upcoming_scraped=true -> using ESPN source ($SRC)."
           else
             SRC=./data/upcoming_cards.json
+            echo "[export upcoming] espn_upcoming_scraped=false, ufcstats_upcoming_scraped=true -> falling back to UFCStats source ($SRC)."
           fi
           python scripts/export_upcoming_events.py --cards "$SRC" --out ./JSON_exports/upcoming_events.json
 
