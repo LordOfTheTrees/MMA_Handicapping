@@ -6,6 +6,19 @@ This note measures the **current multinomial logistic model** (ELO + style + mat
 
 **Secondary:** accuracy and macro F1 (higher is better for both); accuracy is easier to read but can hide miscalibration.
 
+> **Correction (numbers recomputed).** Every figure previously published in this note was
+> produced through a lookahead bug in `ELOModel.get_state`: historical queries returned each
+> fighter's **terminal** ELO rather than their rating at fight time, so pre-fight feature rows
+> carried the outcomes of fights that had not happened yet. Because `elo_differential` and the
+> opponent-quality term in the style axes both read through that call, **every** feature row
+> built by `build_xyw_for_fights` was affected — bespoke, XGBoost and the ELO-only baseline
+> alike. The holdout cutoff did not help: the rows themselves contained future information.
+>
+> §3, §3.1 and §4 below are recomputed with point-in-time ELO. §5 has **not** been recomputed
+> and is still leak-contaminated — see the warning there. Reproduce with
+> `python scripts/dev/rebuild_efficacy_table.py --ab`, whose `--ab` column reruns the pre-fix
+> code path and recovers the previously published values, confirming the provenance of the change.
+
 ---
 
 ## 1. Cohort and frozen configuration
@@ -16,7 +29,8 @@ This note measures the **current multinomial logistic model** (ELO + style + mat
 | Training cutoff | Tier‑1 rows with `fight_date < 2023-01-01` feed the regression fit (when holdout is on) |
 | Pristine **evaluation** cohort | **Calendar years 2023, 2024, 2025** only — decisive Tier‑1, fighter A (matches Phase 3 / `first_run_report.json`; not open-ended `≥ 2023`) |
 | Frozen hyperparameters | **`frozen_winner_config`** in [`docs/first_run_report.json`](first_run_report.json) (selection ends 2022; pristine uses this config without re-search) |
-| Report snapshot | `generated_utc`: **2026-04-24** (see JSON); cohort *n* matches **1,529** decisive A-side Tier‑1 fights in 2023–2025 for both the saved report and the recomputed ELO baseline below |
+| Report snapshot | `generated_utc`: **2026-04-24** (see JSON) — **superseded for §4**: those stored metrics predate the point-in-time ELO fix. §4 is recomputed from the current CSV; `first_run_report.json` itself has not been regenerated. |
+| Cohort size | **1,529** decisive A-side Tier‑1 fights in 2023–2025. Note this is *not* the same slice as `eval-holdout`, which scores every row with `fight_date >= 2023-01-01` and pulls in 2026 cards (**1,742** on the current CSV). Compare §4 numbers only against the pristine cohort. |
 
 Production defaults in [`src/config.py`](../src/config.py) match that frozen winner unless you override at train time.
 
@@ -54,7 +68,17 @@ with \(\hat{\pi}\) normalized within the win ({0,1,2}) or loss ({3,4,5}) classes
 
 **Marginal binary W/L** from this model uses \(p_{\text{win}}\) only (same collapse as `mean_wl_log_loss` in [`fight_scoring.py`](../src/eval/fight_scoring.py)).
 
-This baseline is **strong on W/L** (ELO is built for that) but **weak on fine-grained method** (static method priors), so we expect the **full model to gain most on six-way log-loss**.
+This baseline is **weak on fine-grained method** by construction (static method priors), so the
+full model should gain most on six-way log-loss.
+
+An earlier version of this note also described it as **strong on W/L** ("ELO is built for that").
+That is **not true** once ELO is queried point-in-time: the baseline scores **57.03%** W/L accuracy
+with a marginal W/L log-loss of **0.6899** against a coin's **0.6931** — a gain of 0.003 nats, which
+is close to nothing. The apparent W/L strength was the lookahead bug: the "ELO" being compared was
+each fighter's end-of-dataset rating, which already encoded who won.
+
+**Implementation:** [`scripts/dev/baseline_elo_only.py`](../scripts/dev/baseline_elo_only.py)
+implements this specification (it was prose-only until the recomputation; see §6).
 
 ### 3.1 Empirical method priors (training side, pre‑2023)
 
@@ -74,26 +98,80 @@ Estimated on **6,366** decisive A-side Tier‑1 fights (`fight_date < 2023-01-01
 
 ## 4. Headline comparison — pristine 2023–2025 (n = 1,529)
 
-| System | Mean log-loss ↓ | Mean Brier ↓ | Accuracy ↑ | Macro F1 ↑ | Source / notes |
-|--------|-----------------|--------------|------------|------------|----------------|
-| **Uniform random (6-way)** | 1.7918 | — | 16.7% | ~0 | Theoretical |
-| **Full model (bespoke, frozen config)** | **1.3656** | **0.7031** | **41.27%** | **0.2638** | [`first_run_report.json`](first_run_report.json) pristine pool; `generated_utc` **2026-04-24** |
-| **XGBoost** (same tabular features, pristine eval) | 1.3930 | 0.7135 | 40.48% | 0.3305 | [`scripts/dev/benchmark_xgboost_vs_holdout.py`](../scripts/dev/benchmark_xgboost_vs_holdout.py) default `--eval-mode pristine`; run **2026-05-05** on current `data/` |
-| **ELO-only (6-way, §3)** | 1.4781 | 0.7325 | 40.48% | 0.1790 | Recomputed same cohort + frozen ELO settings (see §3) |
+All three systems scored on one cohort from one ELO build by
+[`scripts/dev/rebuild_efficacy_table.py`](../scripts/dev/rebuild_efficacy_table.py).
 
-**Bespoke vs XGBoost (same 1,529 fights, same feature rows):** the bespoke multinomial model is **better on the primary metric** — mean log-loss **1.366 vs 1.393** (**~0.027 nats** lower, ~**2.0%** relative improvement vs the XGB score). Brier and accuracy also **slightly favor** bespoke. XGBoost posts **higher macro F1** (0.33 vs 0.26) on this slice, i.e. different error tradeoffs, not better probability quality for handicapping.
+| System | Mean log-loss ↓ | Mean Brier ↓ | Accuracy ↑ | Macro F1 ↑ | W/L log-loss ↓ | W/L acc ↑ |
+|--------|-----------------|--------------|------------|------------|----------------|-----------|
+| **Uniform random (6-way)** | 1.7918 | — | 16.67% | ~0 | 0.6931 | 50.00% |
+| **Full model (bespoke, frozen config)** | **1.6615** | **0.7899** | **31.59%** | 0.2054 | **0.6528** | **60.89%** |
+| **XGBoost** (same tabular features) | 1.7108 | 0.8083 | 28.97% | **0.2201** | 0.6654 | 58.53% |
+| **ELO-only (6-way, §3)** | 1.7090 | 0.8055 | 28.58% | 0.1258 | 0.6899 | 57.03% |
 
-**Gains vs uniform:** bespoke log-loss better than uniform by **~0.426** nats/fight (~**23.8%** relative reduction vs \(\log 6\)).
+**Gains vs uniform:** bespoke log-loss is better than uniform by **0.130** nats/fight
+(~**7.3%** relative reduction vs \(\log 6\)). The previously published figure was ~0.426 nats
+(~23.8%); roughly two-thirds of that apparent gain was the ELO leak.
 
-**Gains vs ELO-only:** bespoke log-loss better by **~0.113** nats/fight — the regression layer is **materially improving calibration** on the six-way outcome, not only riding ELO.
+**Gains vs ELO-only:** bespoke is better by **0.048** nats/fight. The conclusion that the
+regression layer improves calibration rather than only riding ELO **still holds** — bespoke
+captures ~1.6× the gain over uniform that ELO-only does (0.130 vs 0.083 nats) — but the margin
+is less than half the **~0.113** nats previously claimed.
 
-**XGBoost extras (same run):** marginal W/L log-loss **0.3730**; W/L accuracy from predicted class collapse **83.13%**; binary finish vs decision F1 **0.5750**.
+**Bespoke vs XGBoost (same 1,529 fights, same feature rows):** bespoke remains **better on the
+primary metric** — **1.6615 vs 1.7108**, **0.049** nats lower. This margin **grew** with the fix
+(it was ~0.027 nats when both were leaking), so the case for the bespoke model over a
+general-purpose GBDT is stronger now, not weaker. Brier and accuracy also favor bespoke; XGBoost
+still posts **higher macro F1** (0.220 vs 0.205), the same tradeoff as before — different error
+profile, not better probability quality for handicapping.
 
-**Binary W/L (ELO-only, marginal \(p_{\text{win}}\))** on the same 1,529 fights: mean log-loss **~0.457** vs coin baseline **0.693**; six-way **argmax** W/L accuracy ~**85.8%** (see §3). For bespoke W/L metrics vs holdout, use **`eval-holdout`** on a model trained with the same `holdout_start_date` (see [`Tier1SliceScore`](../src/eval/fight_scoring.py)).
+**ELO-only and XGBoost now land within 0.002 nats of each other** on the primary metric
+(1.7090 vs 1.7108), and both sit close to uniform. Under the leak they looked well separated
+(1.4808 vs 1.4115). No significance test has been run on that gap — it is reported as a point
+estimate on a single cohort, and 0.002 nats should not be read as a meaningful ordering.
+
+**W/L reality check:** the bespoke model's binary W/L accuracy is **60.89%**. Against a market
+ceiling generally placed near 65%, that is a plausible if modest edge. The previously published
+**~85.8%** (ELO-only, six-way argmax collapse) was not attainable performance — it was the model
+reading end-of-dataset ratings. For W/L metrics on the open-ended holdout rather than this
+pristine cohort, use **`eval-holdout`** (see [`Tier1SliceScore`](../src/eval/fight_scoring.py)),
+remembering it scores a larger slice (n = 1,742).
+
+### 4.1 What the leak was worth
+
+Same data, same code, `get_state` toggled between the pre-fix and point-in-time implementations
+(`rebuild_efficacy_table.py --ab`). The leaky column reproduces the previously published table,
+which is what identifies the leak as the cause of the change.
+
+| System | Leaky log-loss | Honest log-loss | Δ log-loss | Leaky W/L acc | Honest W/L acc | Δ W/L acc |
+|--------|----------------|-----------------|-----------|---------------|----------------|-----------|
+| Full model (bespoke) | 1.3646 | 1.6615 | −0.297 | 84.50% | 60.89% | −23.6 pts |
+| XGBoost | 1.4115 | 1.7108 | −0.299 | 82.15% | 58.53% | −23.6 pts |
+| ELO-only (§3) | 1.4808 | 1.7090 | −0.228 | 84.63% | 57.03% | −27.6 pts |
+
+Reproduction against the previously published values: bespoke **1.3646** vs 1.3656 published,
+ELO-only **1.4808** vs 1.4781. XGBoost recomputes to **1.4115** against 1.3930 published; that
+row was generated on a later data snapshot (**2026-05-05**) than the bespoke row
+(**2026-04-24**), which accounts for the residual gap.
+
+**Feature weights shifted as much as the metrics.** Under the leak, `elo_differential` carried
+**0.628** of total coefficient magnitude; honestly it carries **0.191**. Physical attributes rise
+from 0.135 to **0.347** and become the largest family — `age_diff_days` 0.043 → **0.165**,
+`reach_diff_cm` 0.040 → **0.102**. These features were not weak signals; they were crowded out by
+a feature that already knew the outcome. Any prior conclusion about feature importance drawn from
+the old fit should be treated as void
+(see [`scripts/dev/ab_elo_leak_attribution.py`](../scripts/dev/ab_elo_leak_attribution.py)).
 
 ---
 
 ## 5. Performance over time (selection → pristine)
+
+> **⚠ Not recomputed — these numbers are leak-contaminated.** Everything in §5 is read from
+> [`first_run_report.json`](first_run_report.json), which was generated before the point-in-time
+> ELO fix. Regenerating it means re-running the Phase‑3 harness (§6.2), not just re-scoring, so
+> it is left as-is and flagged rather than silently updated. Expect the same direction of change
+> as §4 — roughly +0.3 nats of log-loss and a large accuracy drop in every row — and treat the
+> yearly *trajectory* as unverified. The §4 pristine pool below is superseded by the recomputed
+> §4 table.
 
 The committed JSON records **forward** multiclass metrics **year by year**:
 
@@ -145,7 +223,20 @@ Pooled pristine: §4. Trajectory is **flat to mildly improving** in log-loss acr
    `python -m src.cli.run_phase3_tuning --data-dir ./data --out-dir ./data/phase3_eval`  
    Regenerates CSV/JSON/plots; large runs use `--selection-search`.
 
-3. **ELO-only baseline** — Not yet a first-class CLI; reproduce by scoring the pristine fight list with the construction in §3 (same loader, `build_elo` / cache, empirical priors from pre‑2023 rows). Expect small drift if the fights CSV grows after the snapshot date.
+3. **ELO-only baseline** — now scripted (it was prose-only, which is why its published numbers
+   could not be re-derived):
+   `python scripts/dev/baseline_elo_only.py --ab`
+   Expect small drift if the fights CSV grows after the snapshot date.
+
+4. **Whole §4 table in one run** — bespoke, ELO-only and XGBoost on one cohort and one ELO build:
+   `python scripts/dev/rebuild_efficacy_table.py --ab`
+   `--ab` adds the pre-fix leaky column used in §4.1. Bootstrap resamples are disabled (they feed
+   prediction CIs via `compute_prediction_ci`, while scoring uses `predict_proba_point_only`), so
+   metrics are identical to a full run and it finishes in ~1 minute per arm instead of ~50.
+
+5. **Leak attribution / feature re-weighting** —
+   `python scripts/dev/ab_elo_leak_attribution.py`
+   Trains twice with only `get_state` swapped and prints the metric and coefficient-mass deltas.
 
 ---
 
@@ -170,7 +261,17 @@ python   scripts/dev/benchmark_xgboost_vs_holdout.py   --data-dir ./data  --elo-
 
 **Expect:** on a typical laptop, **ELO build or cache load** dominates the first run; materializing **feature rows** (~6.5k train + ~1.5k test) is usually **several minutes** (style axes per row). **XGBoost fit** is typically on the order of **tens of seconds** at default `n_estimators=300`. Use `--matrix-progress-every 0` for quieter logs.
 
-**Latest pristine result (see §4 table):** on the default cohort, **XGBoost did not beat** the frozen bespoke model on mean log-loss; it remains a useful **nonlinear sanity check** and future scoreboard if tunings change.
+**Latest pristine result (see §4 table):** on the default cohort, **XGBoost did not beat** the
+frozen bespoke model on mean log-loss (**1.7108 vs 1.6615**), and its shortfall is **wider** after
+the point-in-time ELO fix than before it (0.049 vs ~0.027 nats). It remains a useful **nonlinear
+sanity check** and future scoreboard if tunings change. Note that with honest ELO it lands within
+0.002 nats of the far simpler ELO-only baseline — on this feature set the nonlinearity is buying
+almost nothing.
+
+**Cache note:** `--elo-cache` files written before the point-in-time fix are rejected
+(`_elo_cache_v` bumped to 2), and pre-fix pickles raise on historical queries rather than silently
+answering with terminal ELO. Delete any stale cache and let it rebuild; the ELO build itself is
+seconds, not minutes.
 
 Remaining roadmap: optional SHAP / calibration_bins if you promote GBDT; otherwise the linear model keeps `explain` and current SOTA on this slice.
 
