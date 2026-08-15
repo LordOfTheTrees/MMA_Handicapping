@@ -406,12 +406,73 @@ doesn't.
 
 ---
 
+## ADR-27: Betting evaluation is expected Kelly log growth over the existing holdout
+
+**Context.** ADR-21 settled *when to stake* (EV-based stake filter, not confidence thresholds) but
+left open *what number reports whether the strategy works*. Reported metrics to date score against
+uninformed baselines — uniform six-way (log 6) and a fair coin — which answer "is the model better
+than nothing," not "does this make money." Once fight-level line data exists, the second question
+is the only one that matters, and it needs a metric fixed in advance so the analysis is not
+designed around whatever the first pass happens to show.
+
+**Decision.** The reporting metric is **expected Kelly log bankroll growth**, evaluated over the
+**existing holdout period** — the same fights already scored in
+[`model-efficacy-vs-baselines.md`](model-efficacy-vs-baselines.md) §4. This is an evaluation
+overlay on a cohort we already have, not a new experimental construct.
+
+The metric connects directly to the objective already in use. For a bet at de-vigged implied
+probability *q* when the model's probability is *p*, optimal Kelly staking has expected log growth
+
+> *G\** = *p*·ln(*p*/*q*) + (1−*p*)·ln((1−*p*)/(1−*q*)) = KL(*p* ‖ *q*)
+
+which is exactly **market log-loss minus model log-loss** in expectation. Expected growth per bet
+*is* the model's log-loss edge over the market. Log-loss therefore stays the training and selection
+objective (ADR-20); what changes is the **reference distribution**, from uniform to market-implied.
+Nothing about the model or its fitting procedure needs to change to adopt this metric.
+
+**Reference lines are opening lines and method-market implied probabilities.** The strategy has not
+at any point assumed an edge against closing-line moneyline W/L; closing lines are the most
+efficient prices in the market and beating them was never the premise. Evaluation against the
+closing line may still be reported as a secondary diagnostic, but it is not the success criterion.
+
+**Consequences.**
+
+- **The de-vig method is a modeling choice and must be stated with any result.** Implied
+  probabilities sum to more than one; proportional normalization, Shin, and power/logarithmic
+  methods distribute the overround differently, and the measured edge moves with the choice. Two-
+  and three-way markets carry different overround, so a single method should be applied
+  consistently and named in the output.
+- **Fractional Kelly, not full.** Full Kelly assumes *p* is known exactly. Model probabilities carry
+  estimation error, which makes full Kelly systematically overbet. The bootstrap coefficient stack
+  (`_bootstrap_W`, `n_bootstrap=200`) is the existing machinery for quantifying that uncertainty and
+  is the natural input to a fraction; note that scoring paths use `predict_proba_point_only` and do
+  not consume it, so this is the first analysis that gives those refits a purpose.
+- **Report bet count and coverage alongside growth**, per ADR-21. Growth over a staked subset is
+  uninterpretable without knowing how many wagers produced it; a positive rate on a small number of
+  bets does not separate skill from variance.
+- **Metric is fixed before the data arrives**, deliberately. Selecting a betting metric after seeing
+  which one flatters the model is the same cherry-picking failure ADR-21 rejects for abstention.
+- **Current measured state, for reference when lines arrive.** Post-leak-fix on the pristine
+  2023–2025 cohort, six-way log-loss decomposes exactly into a W/L term plus a method-given-side
+  term: bespoke **0.6528 + 1.0087 = 1.6615**; the ELO-only baseline with static method priors
+  **0.6899 + 1.0191 = 1.7090**; uniform-over-three-methods is ln 3 = **1.0986**. So of the bespoke
+  model's 0.048-nat advantage over ELO-only, roughly **0.037 is W/L** and **0.010 is method beyond
+  static base rates**. Recorded as a baseline observation, not as a claim about where a market edge
+  will or will not be found.
+- **Open dependency: fight-level historical prices.** Opening moneylines and method-market prices
+  for the holdout period are not in the repo and their historical coverage has not been surveyed.
+  Establishing what is actually obtainable — which markets, which fights, how far back — is the
+  first task, and no assumption about coverage should be carried into the analysis before that
+  survey exists.
+
+---
+
 ## Deferred (explicitly not decided here)
 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
 - **Manual pedigree** fill vs. leaving zeros for cold starts.
 - **Legacy result-only** UFCStats rows without sig-strike tables.
-- **Production holdout** policy vs tuning scripts (per-run choice; see `todo.md` §3.1, ADR-20) — *Phase 3 walk-forward design* is no longer an open “whether” (ADR-20); **stake/ROI** vs closing lines is still deferred.
+- **Production holdout** policy vs tuning scripts (per-run choice; see `todo.md` §3.1, ADR-20) — *Phase 3 walk-forward design* is no longer an open “whether” (ADR-20). The **betting evaluation metric** is no longer deferred either (ADR-27: expected Kelly log growth over the existing holdout, referenced to opening lines and method-market implied probabilities); what remains deferred is **sourcing the price data** and any claim about market coverage.
 
 ---
 
