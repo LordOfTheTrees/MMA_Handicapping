@@ -208,5 +208,9 @@ __marimo__/
 
 # MMA model data — never commit raw fight/fighter data or trained model artifacts
 /data/
+# Third-party odds dumps (Kaggle / Hugging Face). Covered by /data/ above;
+# listed explicitly so they stay out if anyone later un-ignores parts of data/.
+/data/Public\ datasets/
+*.postgres-custom
 model.pkl
 *.pkl

@@ -322,7 +322,7 @@ A **first full** run of the script harness (random search per **selection** year
 **Next (not a second mandatory 50-trial/yr run unless you need it) — order in [`TODO.md`](../TODO.md):**
 
 - **Case studies** — [`hyperparameter-tuning.md`](hyperparameter-tuning.md) §9: worst per-fight log-loss bouts (pristine payload) for narrative debugging.
-- **Odds / stake / ROI** — Needs reproducible historical lines; **ADR-21** (EV-based filter). Model log-loss is not profitability.
+- **Odds / stake / ROI** — Unblocked as a **post-hoc** book: `python -m src.eval.market_book` ([pipeline-and-cli.md](pipeline-and-cli.md) §4.1). Odds never train. **ADR-21 `min_edge` is still not searched.** Model log-loss is not profitability. First-book gap and staking maps that need not sum to 1: **ADR-28**.
 - **Fast A/B** — `python -m src.cli.run_phase3_tuning` with smaller `--n-trials`, narrower selection, or baseline-only walk-forward **vs** saved `phase3_metrics.csv`; confirm **ranking** stability before another long wall-clock run.
 
 ---

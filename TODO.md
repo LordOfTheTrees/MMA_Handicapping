@@ -47,7 +47,7 @@ Today a “refresh” rediscovers **~770 events** and re-fetches thousands of fi
 ## Next work bout (after P0 scrape items)
 
 1. **Case studies and examples** — Pristine and selection slices in **`data/phase3_eval/phase3_report.json`** (per–weight-class). Pull **highest per-fight log-loss** fights for write-ups; see [`docs/hyperparameter-tuning.md`](docs/hyperparameter-tuning.md) §9.
-2. **Fight odds + stake / P&L research** — Historical **opening** or **pre-bell** / **closing** odds (per fight, PIT) to test **stake** / ROI vs model probabilities (Kelly, flat stake, **EV-based** filter per **ADR-21**). **Blocked** until a **reproducible lines** data source exists; model metrics alone do not prove profitability.
+2. **Fight odds + stake / P&L research** — Post-hoc walk-forward book: **`python -m src.eval.market_book`** ([`docs/pipeline-and-cli.md`](docs/pipeline-and-cli.md) §4.1). Odds never enter training. ADR-21 **`min_edge` is still not searched** (stake rule is every posted `e > 0`). First PIT book: projected ≫ realized; next maps (de-vig, simultaneous Kelly, blend, contract binaries) are **ADR-28** — display softmax stays.
 3. **Fast validation (cheap Phase 3 A/B)** — Before another long walk-forward: use as **A/B** vs saved **`data/phase3_eval/phase3_metrics.csv`** / report:
    - **Baseline only:** `python -m src.cli.run_phase3_tuning` **without** `--selection-search` (single `Config` walk-forward) on the same `selection-start`/`end`, compare curves to the saved metrics.
    - **Smaller search:** same script with **`--n-trials 10`–`20`**, and/or **narrower** `--selection-start` / `--selection-end` (e.g. 2018–2022) to see if **ranking** of winners is stable vs the 50-trial run.
@@ -76,7 +76,7 @@ python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 2. **Validation before tuning** — Log-loss and era knobs come **after** “train runs, predict runs, symmetry holds.”
 3. **Cheap A/B before expensive search** — **50-trial/yr** walk-forward is a **reference**, not a weekly habit. Baseline walk-forward, **10–20 trials**, or a **shorter** selection window should agree **in spirit** (stable ranking) before another long wall-clock run.
 4. **Hardening** — Harness + export parity + site-page JSON checks in repo; widen tests as needed.
-5. **From probabilities to P&L** — Requires **reproducible** historical **odds** at a defined decision time; out of scope for core modeling until that data exists.
+5. **From probabilities to P&L** — Local verification book is **`python -m src.eval.market_book`**; still not a training objective. ADR-21 `min_edge` is not searched. Softmax-for-humans vs contract pricing: **ADR-28**.
 
 ---
 

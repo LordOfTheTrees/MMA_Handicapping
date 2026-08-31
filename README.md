@@ -33,7 +33,7 @@ Design detail lives in [`docs/architecture.md`](docs/architecture.md). **CLI fla
 | `src/elo/`, `src/features/`, `src/matchup/`, `src/model/`, `src/confidence/` | Stages |
 | [`scripts/`](scripts/) | **`run_harness.py`** wraps unittest (`quick` / `integration` / full `discover`). Also **JSON export for `mma.ai`** (`export_artifacts.py`, `export_upcoming_events.py`, `copy_exports_to_mma_ai.py` — see [Website export](#website-export-mmaai)); core model CLIs live under **`src/cli/`** |
 | [`src/cli/plot_prediction_three_viz.py`](src/cli/plot_prediction_three_viz.py) | Optional **split-barrier** PNG for a fight; chart copy uses **integer %** (ADR-22) |
-| `data/` | Local CSVs and artifacts (gitignored where appropriate; see `.gitignore`) |
+| `data/` | Local CSVs and artifacts (gitignored where appropriate; see `.gitignore`). Market verification: **`python -m src.eval.market_book`** (details in [`docs/pipeline-and-cli.md`](docs/pipeline-and-cli.md) §4.1). |
 
 ---
 

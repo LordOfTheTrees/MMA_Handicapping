@@ -231,7 +231,7 @@ per corner from **global** days since last fight to predict date. **No** discret
 
 **Decision.** Implement the harness in [`src/eval/tuning_harness.py`](../src/eval/tuning_harness.py), invoked via **`python -m src.cli.run_phase3_tuning`** ([`src/cli/run_phase3_tuning.py`](../src/cli/run_phase3_tuning.py)) with optional **`--selection-search`** (`--n-trials` per outer year, default **50**; warm-start chain; inner window **`--inner-last-k`** or full inner). Write **`data/phase3_eval/phase3_report.json`**, metrics CSV, plots, and optional **`elo_walkforward_cache.pkl`**. **Serialization choice:** the report stores the **2022 (last selection year) winner** as **`frozen_winner_config`**, **`trial_rows`** (log-loss by trial id only, not full `Config` per trial), and **`selection_campaign`** per-year metadata — **not** a full record of every sampled hyperparameter vector across years.
 
-**Consequences.** A **full** 50-trial/yr run is a **long** wall-time commitment (ELO + repeated multinomial fits). For **A/B** without repeating that cost: run **baseline** walk-forward (no search), or **reduced** `--n-trials` / **narrower** selection years, and compare ranking or pristine deltas to the saved `phase3_metrics.csv` / JSON. **Production ship:** rehydrate **`frozen_winner_config`** (or the nested dict from JSON) into `Config` and run **`train`** with the **intended** deploy holdout / snapshot policy; do not treat `holdout_start_date` inside a frozen copy as binding without re-reading `docs/todo.md` §3.1. **Economic** evaluation (ROI vs book odds) is **out of scope** of this ADR; needs historical lines data.
+**Consequences.** A **full** 50-trial/yr run is a **long** wall-time commitment (ELO + repeated multinomial fits). For **A/B** without repeating that cost: run **baseline** walk-forward (no search), or **reduced** `--n-trials` / **narrower** selection years, and compare ranking or pristine deltas to the saved `phase3_metrics.csv` / JSON. **Production ship:** rehydrate **`frozen_winner_config`** (or the nested dict from JSON) into `Config` and run **`train`** with the **intended** deploy holdout / snapshot policy; do not treat `holdout_start_date` inside a frozen copy as binding without re-reading `docs/todo.md` §3.1. **Economic** evaluation vs posted odds is post-hoc (`python -m src.eval.market_book`); it is **not** a Phase-3 ranking objective.
 
 ---
 
@@ -252,7 +252,7 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 
 **Consequences.**
 
-- Abstention cannot be evaluated or tuned until a reproducible source of historical betting lines (opening, closing, or pre-bell) is available at the fight level. See `TODO.md` §P&L and ADR-20 "Deferred" for scope notes.
+- Abstention cannot be evaluated or tuned until a reproducible source of historical betting lines (opening, closing, or pre-bell) is available at the fight level. See `TODO.md` §P&L and ADR-20 "Deferred" for scope notes. A **post-hoc** verification book on OOS `P` (every posted `e > 0`; full/half Kelly and 1u) is `python -m src.eval.market_book` — still not a model layer, still not folded into `score_tier1_fight_slice`. ADR-21 `min_edge` is **not** searched.
 - The stake filter is **not** trained jointly with the regression model. It is applied post-hoc to model outputs. Training them jointly would reintroduce the cherry-picking bias.
 - **Do not add a confidence threshold to `predict` or `score_tier1_fight_slice`.** Those are model-evaluation surfaces that must score every fight to be honest. A fight the model is uncertain about is still a real fight; excluding it from metrics is dishonest.
 - When lines data exists, evaluate abstention on **ROI over all fights** (not accuracy on chosen fights): if the filter skips 40% of cards and the retained set shows positive P&L over a large sample, that is meaningful. If the retained set merely shows higher classification accuracy, it is not.
@@ -459,11 +459,94 @@ closing line may still be reported as a secondary diagnostic, but it is not the 
   model's 0.048-nat advantage over ELO-only, roughly **0.037 is W/L** and **0.010 is method beyond
   static base rates**. Recorded as a baseline observation, not as a claim about where a market edge
   will or will not be found.
-- **Open dependency: fight-level historical prices.** Opening moneylines and method-market prices
-  for the holdout period are not in the repo and their historical coverage has not been surveyed.
-  Establishing what is actually obtainable — which markets, which fights, how far back — is the
-  first task, and no assumption about coverage should be carried into the analysis before that
-  survey exists.
+- **Open dependency: fight-level historical prices.** A first local join now exists
+  (`python -m src.eval.market_book`; jurek + mdabbert fill; posted decimals, not a clean open).
+  ADR-27’s success criterion (opening lines, de-vigged *q*, expected Kelly growth on the
+  pristine holdout) is **not** what that first book measured. Coverage and which timestamp
+  the dump represents remain survey items. First-book result and betting-layer maps: **ADR-28**.
+
+---
+
+## ADR-28: Display simplex stays; the betting map may leave it
+
+**Context.** Training and the site use a 6-class softmax that **sums to 1**
+([`architecture.md`](architecture.md) §1.2, stacked bars on `mma.ai`). That is a usability
+and proper-scoring choice: one fight, six mutually exclusive labels, readable percentages.
+
+Posted books do **not** sum to 1. Two-way overround is typically a few points; a six-way
+method board is much fatter. Kelly and “edge vs the market” compare a **contract** price
+`d` to a probability that this contract pays. Forcing that probability to be a slice of a
+100% stack, then taking `max_k (P_k d_k − 1)` on noisy `P`, is a different problem than
+“is the 6-vector calibrated?”
+
+The first PIT walk-forward book (`python -m src.eval.market_book`, frozen `Config()`,
+`W` refit on `fight_date < Y-01-01`, 2013–2025) used simplex `P` against **posted**
+(not de-vigged) decimals, every `e > 0`, one max-edge contract per fight. Projected
+Kelly / 1u were large and positive; realized were consistently negative. On staked
+two-way contracts, implied model `P` was ~55%, posted implied ~38%, hit rate ~36%;
+coverage ~91% two-way and ~99% method. That is selected-side overconfidence (winner’s
+curse of max-edge), not a walk-forward leak of year-`Y` labels into `W`.
+
+**Decision.** Keep softmax for **train**, **`predict`**, **`score_tier1_fight_slice`**, and
+site JSON. Odds still never enter training (ADR-20 / ADR-21). How a **post-hoc staking
+layer** maps `P` (and lines) into contract probabilities **is not chosen yet**. Options
+below may shrink, split, or leave the simplex **only in that layer**. The first book
+(every posted `e > 0`, max-edge, posted `d`) stays the baseline rollup; new maps get a
+separate flag or report, not a silent overwrite.
+
+**Betting-layer options (research; not ranked as “do all”).**
+
+*Use the simplex instead of fighting it*
+
+- **Simultaneous Kelly on mutually exclusive outcomes.** One fight, at most one winner;
+  the stake vector is a single budget, not six independent Kellys with “pick the max.”
+  Max-edge is the reduction that turns a coherent 100% into a longshot magnet.
+- **De-vig *q* for skill, posted *d* for money.** ADR-27’s `G* = KL(p ‖ q)` needs a named
+  de-vig (proportional / Shin / power). Staking EV still uses the price you are paid.
+  Name the de-vig in the output.
+- **Gate on market log-loss.** If trailing mean `KL(P ‖ q) ≤ 0`, the 6-vector is a worse
+  distribution than the book — stake nothing that window. Max-edge cannot recover a
+  dominated forecast.
+
+*Stay on a simplex, but not the raw 6-way point `P`*
+
+- **Market blend:** `P_stake = λ P + (1−λ) q_devig`. `λ` from OOS log-loss vs market, not
+  from fitting `W` on odds. Shrinks selected-side `P` toward the line; `λ → 0` is “never
+  bet.”
+- **Split W/L vs method.** Calibrate `P(A wins)` as a binary; method as
+  `P(method | side)`. Moneyline Kelly then does not inherit six-way tail noise. Each
+  layer still sums to 1.
+- **Temperature / isotonic, then ADR-21 `min_edge`.** Flatten or recalibrate walk-forward
+  `P` before `e = P d − 1`. Cuts 91% coverage; `min_edge` stays unswept on the same
+  years used to pick it.
+- **Uncertainty-adjusted `p`.** Bootstrap / Cauchy draws already exist; use a lower
+  bound on `e` or a fractional Kelly from the spread of `P` (ADR-27). Point softmax is
+  not treated as known.
+
+*Leave sum-to-1 only for contract pricing (UI still softmax)*
+
+- **Independent contract binaries.** A post-hoc `P(this line hits)` per moneyline or
+  method prop that is **not** required to sum to 1. Underround (own implieds < 100%) is
+  the conservative direction against juice; own overround would be more aggressive and
+  is probably worse. Incoherent `P(A)+P(B) ≠ 1` is allowed in the book and forbidden on
+  the site.
+- **Competing-risk / intensity.** KO / sub / dec as rates; normalize for display;
+  stake from the rate-implied contract probability. Same split: simplex for humans,
+  unnormalized intensities for prices.
+
+**Out of scope for this ADR.** Per-year `Config` search (might move calibration a little;
+does not remove max-edge bias). Full Kelly on the same point `P`. Putting lines into
+`train_regression` / Phase 3.
+
+**Consequences.**
+
+- `predict` / export / log-loss scoring keep a 100% stack. A betting map that does not
+  sum to 1 must not overwrite those surfaces.
+- Next book experiment should report **hit rate vs posted implied** on the staked set
+  (the first book’s smoking gun), not only projected vs realized wealth.
+- Choosing among the options above on the same 2013–2025 realized path that suggested
+  them is selection bias; freeze a map, then grade a later window (or a pre-registered
+  slice such as titles-only).
 
 ---
 
@@ -472,7 +555,7 @@ closing line may still be reported as a secondary diagnostic, but it is not the 
 - **Tier 2/3** promotion ingestion and Sherdog crosswalks.
 - **Manual pedigree** fill vs. leaving zeros for cold starts.
 - **Legacy result-only** UFCStats rows without sig-strike tables.
-- **Production holdout** policy vs tuning scripts (per-run choice; see `todo.md` §3.1, ADR-20) — *Phase 3 walk-forward design* is no longer an open “whether” (ADR-20). The **betting evaluation metric** is no longer deferred either (ADR-27: expected Kelly log growth over the existing holdout, referenced to opening lines and method-market implied probabilities); what remains deferred is **sourcing the price data** and any claim about market coverage.
+- **Production holdout** policy vs tuning scripts (per-run choice; see `todo.md` §3.1, ADR-20) — *Phase 3 walk-forward design* is no longer an open “whether” (ADR-20). The **betting evaluation metric** is no longer deferred (ADR-27). A local price join exists (`market_book`); what remains deferred is a clean **opening-line** survey, a named **de-vig**, and **which staking map** (ADR-28) if any leaves the display simplex.
 
 ---
 

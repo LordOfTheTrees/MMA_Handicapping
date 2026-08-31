@@ -122,6 +122,28 @@ Implementations live under [`src/cli/`](../src/cli/). From the repo root, run wi
 | [`scripts/dev/pilot_lbfgs_stopping.py`](../scripts/dev/pilot_lbfgs_stopping.py) | Experiments L-BFGS-B stopping tolerances on the training matrix. |
 | [`scripts/dev/phase2_smoke.py`](../scripts/dev/phase2_smoke.py) | Phase‑2 smoke checks. |
 | [`src/cli/chart_elo_trajectory.py`](../src/cli/chart_elo_trajectory.py), [`src/cli/chart_elo_distributions.py`](../src/cli/chart_elo_distributions.py) | ELO visualization: combined division grid (`data/elo_by_division.png`) plus per-division PNGs under `data/figures/division_elo_histograms/` by default. |
+| [`src/eval/market_book.py`](../src/eval/market_book.py) | Local walk-forward **+EV book** vs posted two-way / method odds (`python -m src.eval.market_book`). Odds never train. **Not** a GitHub Action; does **not** write `JSON_exports/`. See [§4.1](#41-market-book-local-odds-verification). |
+
+### 4.1 Market book (local odds verification)
+
+Post-hoc expanding walk-forward: frozen `Config()` (2022 Phase-3 winner), refit **W** on `fight_date < Y-01-01`, attach posted lines, stake **every +EV** listed market (`e = P*d - 1 > 0`; no extra `min_edge`). Full Kelly, half Kelly, and 1 unit. Two-way and six-class method books are separate. **Local only** — not wired into weekly/monthly CI or `mma.ai`.
+
+```bash
+python -m src.eval.market_book --data-dir ./data --out-dir ./data/market_eval --start-year 2013 --end-year 2025
+```
+
+Sidecars (gitignored; do not redistribute BestFightOdds dumps):
+
+- `data/Public datasets/Kaggle/jurek betting odds/UFC_betting_odds.csv`
+- `data/Public datasets/Kaggle/mdabbert ultimate/ufc-master.csv`
+
+Outputs: `data/market_eval/market_book.json` (per-year overall plus **one-way** slices, and `slices_pooled` across years), `market_book_yoy.png`, and `market_book_slices.png`. Slices are **not crossed** (no title×women×flyweight):
+
+- **Card slot** (overlapping): `title`, `main_event`, `main_card`, `prelim_main_event`, `generic_prelims`. Billed order from mdabbert (main-first); main card = first 5; featured prelim = index 5; later = generic prelims. Title = mdabbert `title_bout` or `weight_class_raw` containing “title”. Dates with 16+ fights skip position tags (doubleheader).
+- **Gender:** men / women from `WeightClass`; catch/unknown = `other`.
+- **Weight class:** `FightRecord.weight_class` only.
+
+One regression fit per year; ELO cache default `<out-dir>/elo_walkforward_cache.pkl` (`--elo-cache` to override). Does **not** change `train` / `eval-holdout` / Phase 3. ADR-21 `min_edge` is **not** searched. Display/training softmax stays a 100% stack; contract-level maps that leave it are **ADR-28** (not implemented in this CLI).
 
 ---
 

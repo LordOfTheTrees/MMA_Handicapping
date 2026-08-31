@@ -113,7 +113,7 @@ Fights in 2023–2025 with the **highest** per-fight log-loss (or largest surpri
 
 ## 10. Changelog of decision (short)
 
-- **Apr 2026 — reference run on disk** — A full `python -m src.cli.run_phase3_tuning --selection-search` (default 50 trials/outer year, 2007–2022 → pristine 2023–2025) has been **executed**; outputs: `data/phase3_eval/phase3_report.json` (incl. `frozen_winner_config`), `phase3_metrics.csv`, plots, optional ELO cache. **Planned check:** a **faster** config pass (e.g. baseline walk-forward, 10–20 trials, or 2018–2022 only) to confirm **stability of rankings** before repeating 50/yr. **Economic** backtest (odds) remains **future** work.
+- **Apr 2026 — reference run on disk** — A full `python -m src.cli.run_phase3_tuning --selection-search` (default 50 trials/outer year, 2007–2022 → pristine 2023–2025) has been **executed**; outputs: `data/phase3_eval/phase3_report.json` (incl. `frozen_winner_config`), `phase3_metrics.csv`, plots, optional ELO cache. **Planned check:** a **faster** config pass (e.g. baseline walk-forward, 10–20 trials, or 2018–2022 only) to confirm **stability of rankings** before repeating 50/yr. **Economic** eval (posted lines, +EV Kelly / 1u) is **`python -m src.eval.market_book`** ([pipeline-and-cli.md](pipeline-and-cli.md) §4.1); log-loss remains the **tuning** objective. Staking maps that leave the display simplex: ADR-28.
 - Random search, 50 trials, warm-start, fixed inner walk-forward, frozen 2022 `Config` for 2023–2025, full-data refit for ship.
 - Log-loss primary, F1 secondary, weight-class slices stored, not used for selection.
 
