@@ -8,10 +8,12 @@ only — no ``--selection-search`` / random walks.
 Stake rules (fixed in advance): among listed contracts on a fight, stake the
 single +EV market with the largest edge ``e = P*d - 1``. Parallel books:
 full / half / quarter Kelly and 1 unit flat. Two-way (A vs B) and six-class
-method props are **separate** books (no parlays). Comparison map (ADR-28): a
-**simultaneous** Kelly vector on the same listed mutex contracts (backing only)
-is stored as ``two_way_simul`` / ``method_simul``; it does not replace the
-max-edge baseline.
+method props are **separate** books (no parlays). Comparison maps (ADR-28), none
+of which replace the max-edge baseline:
+    * simultaneous Kelly on listed mutex contracts (``two_way_simul`` / ``method_simul``);
+    * model-favorite two-way only (``two_way_favorite``): stake the side with
+      larger ``P(win)`` iff that side has ``e>0``; drop underround boards
+      (``q_A+q_B<1``). No method max-edge on this map.
 
 Local only — not a GitHub Action; do not write ``JSON_exports/`` (mma.ai sync
 globs every ``*.json`` there).
@@ -27,7 +29,8 @@ Sidecars (gitignored, not redistributed)::
     data/Public datasets/Kaggle/mdabbert ultimate/ufc-master.csv
 
 Outputs ``market_book.json``, ``market_book_yoy.png``, ``market_book_slices.png``,
-``market_book_simul.png``, and ``market_book_mdabbert_fill.png`` under ``--out-dir``.
+``market_book_simul.png``, ``market_book_favorite.png``, and
+``market_book_mdabbert_fill.png`` under ``--out-dir``.
 YoY / slices / simul figures are the **jurek tape only**; mdabbert fill is never
 spliced onto those series. Slices (one-way only, not crossed): card slot, gender,
 weight class. Card slots use mdabbert billed order with a fixed 5-fight main card.
@@ -660,6 +663,39 @@ class SimulFight:
     legs: Tuple[SimulLeg, ...]
 
 
+def two_way_overround(d_a: float, d_b: float) -> float:
+    """Posted implied sum ``1/d_A + 1/d_B``. ``< 1`` is underround (not a real two-way)."""
+    return 1.0 / float(d_a) + 1.0 / float(d_b)
+
+
+def pick_model_favorite(
+    p_a: float,
+    d_a: float,
+    p_b: float,
+    d_b: float,
+    hit_of: Mapping[str, bool],
+) -> Optional[StakePick]:
+    """
+    Stake the model-preferred moneyline only, and only if that side has ``e>0``.
+
+    Does not shop the dog because ``d`` is long. Tie ``P(A)==P(B)`` → no bet.
+    """
+    pa, pb = float(p_a), float(p_b)
+    da, db = float(d_a), float(d_b)
+    if da <= 1.0 or db <= 1.0 or pa <= 0.0 or pb <= 0.0:
+        return None
+    if pa > pb:
+        name, p, d = "A", pa, da
+    elif pb > pa:
+        name, p, d = "B", pb, db
+    else:
+        return None
+    e = edge(p, d)
+    if e <= 0.0:
+        return None
+    return StakePick(contract=name, p=p, decimal_odds=d, e=float(e), hit=bool(hit_of[name]))
+
+
 def pick_max_edge(
     probs_and_odds: Sequence[Tuple[str, float, float]],
     hit_of: Mapping[str, bool],
@@ -885,12 +921,14 @@ def rollup_picks(picks: Sequence[StakePick], n_priced: int) -> Dict[str, Any]:
     hits = sum(1 for pk in picks if pk.hit)
     hit_rate = (hits / n_plus) if n_plus else float("nan")
     mean_implied = float(np.mean([1.0 / pk.decimal_odds for pk in picks])) if picks else float("nan")
+    mean_p = float(np.mean([pk.p for pk in picks])) if picks else float("nan")
     return {
         "n_priced": n_priced,
         "n_plus_ev": n_plus,
         "coverage": (n_plus / n_priced) if n_priced else float("nan"),
         "mean_edge": mean_e,
         "hit_rate": hit_rate,
+        "mean_model_p": mean_p,
         "mean_posted_implied": mean_implied,
         **{name: _kelly_path(picks, scale) for name, scale in _KELLY_SCALES},
         "flat_1u": _flat_1u_path(picks),
@@ -1054,10 +1092,12 @@ class BookAccum:
         self.mh_wc: Dict[str, _Bucket] = defaultdict(_Bucket)
         self.md_two_way = _Bucket()
         self.md_method = _Bucket()
+        self.md_two_way_fav = _Bucket()
         self.md_two_way_simul: List[SimulFight] = []
         self.md_method_simul: List[SimulFight] = []
         self.md_n_two_way_priced = 0
         self.md_n_method_priced = 0
+        self.two_way_fav = _Bucket()
 
     def add_fight(
         self,
@@ -1069,10 +1109,13 @@ class BookAccum:
         tw_simul: Optional[SimulFight] = None,
         meth_simul: Optional[SimulFight] = None,
         source: str = PRIMARY_ODDS_SOURCE,
+        tw_fav: Optional[StakePick] = None,
+        tw_fav_priced: bool = False,
     ) -> None:
         if source != PRIMARY_ODDS_SOURCE:
             self.md_two_way.add(tw_pick, tw_priced)
             self.md_method.add(meth_pick, meth_priced)
+            self.md_two_way_fav.add(tw_fav, tw_fav_priced)
             if tw_priced:
                 self.md_n_two_way_priced += 1
             if meth_priced:
@@ -1084,6 +1127,7 @@ class BookAccum:
             return
         self.two_way.add(tw_pick, tw_priced)
         self.method.add(meth_pick, meth_priced)
+        self.two_way_fav.add(tw_fav, tw_fav_priced)
         if tw_priced:
             self.n_two_way_priced += 1
         if meth_priced:
@@ -1107,8 +1151,10 @@ class BookAccum:
         self.method_simul.extend(other.method_simul)
         self.n_two_way_priced += other.n_two_way_priced
         self.n_method_priced += other.n_method_priced
+        _extend_bucket(self.two_way_fav, other.two_way_fav)
         _extend_bucket(self.md_two_way, other.md_two_way)
         _extend_bucket(self.md_method, other.md_method)
+        _extend_bucket(self.md_two_way_fav, other.md_two_way_fav)
         self.md_two_way_simul.extend(other.md_two_way_simul)
         self.md_method_simul.extend(other.md_method_simul)
         self.md_n_two_way_priced += other.md_n_two_way_priced
@@ -1129,12 +1175,14 @@ class BookAccum:
             "odds_tape": PRIMARY_ODDS_SOURCE,
             "two_way": rollup_picks(self.two_way.picks, self.two_way.n_priced),
             "method": rollup_picks(self.method.picks, self.method.n_priced),
+            "two_way_favorite": rollup_picks(self.two_way_fav.picks, self.two_way_fav.n_priced),
             "two_way_simul": rollup_simul(self.two_way_simul, self.n_two_way_priced),
             "method_simul": rollup_simul(self.method_simul, self.n_method_priced),
             "mdabbert_fill": {
                 "odds_tape": "mdabbert",
                 "two_way": rollup_picks(self.md_two_way.picks, self.md_two_way.n_priced),
                 "method": rollup_picks(self.md_method.picks, self.md_method.n_priced),
+                "two_way_favorite": rollup_picks(self.md_two_way_fav.picks, self.md_two_way_fav.n_priced),
                 "two_way_simul": rollup_simul(self.md_two_way_simul, self.md_n_two_way_priced),
                 "method_simul": rollup_simul(self.md_method_simul, self.md_n_method_priced),
             },
@@ -1186,18 +1234,24 @@ def book_year(
         )
         tw_pick: Optional[StakePick] = None
         tw_priced = False
+        tw_fav: Optional[StakePick] = None
+        tw_fav_priced = False
         meth_pick: Optional[StakePick] = None
         meth_priced = False
         tw_simul: Optional[SimulFight] = None
         meth_simul: Optional[SimulFight] = None
         if lines.has_two_way() and lines.d_a is not None and lines.d_b is not None:
             tw_priced = True
-            cands = [
-                ("A", float(p6[0] + p6[1] + p6[2]), float(lines.d_a)),
-                ("B", float(p6[3] + p6[4] + p6[5]), float(lines.d_b)),
-            ]
-            tw_pick = pick_max_edge(cands, fill_two_way_hits(y))
-            tw_simul = simul_fight_from_candidates(cands, fill_two_way_hits(y))
+            p_a = float(p6[0] + p6[1] + p6[2])
+            p_b = float(p6[3] + p6[4] + p6[5])
+            d_a, d_b = float(lines.d_a), float(lines.d_b)
+            cands = [("A", p_a, d_a), ("B", p_b, d_b)]
+            hits = fill_two_way_hits(y)
+            tw_pick = pick_max_edge(cands, hits)
+            tw_simul = simul_fight_from_candidates(cands, hits)
+            if two_way_overround(d_a, d_b) >= 1.0:
+                tw_fav_priced = True
+                tw_fav = pick_model_favorite(p_a, d_a, p_b, d_b, hits)
         if lines.has_method():
             meth_priced = True
             meth_cands = method_candidates(p6, lines)
@@ -1212,6 +1266,8 @@ def book_year(
             tw_simul,
             meth_simul,
             source=lines.source,
+            tw_fav=tw_fav,
+            tw_fav_priced=tw_fav_priced,
         )
     return acc
 
@@ -1282,11 +1338,13 @@ def run_market_book(
         pooled.merge(year_acc)
         years_out[str(y)] = year_acc.as_report()
         tw = years_out[str(y)]["two_way"]
+        fav = years_out[str(y)]["two_way_favorite"]
         mh = years_out[str(y)]["method"]
         mhs = years_out[str(y)]["method_simul"]
         fill = years_out[str(y)]["mdabbert_fill"]
         print(
             f"  jurek two_way n_priced={tw['n_priced']} n+={tw['n_plus_ev']}  "
+            f"two_way_fav n_priced={fav['n_priced']} n+={fav['n_plus_ev']}  "
             f"jurek method n_priced={mh['n_priced']} n+={mh['n_plus_ev']}  "
             f"method_simul n+={mhs['n_plus_ev']} n_multi={mhs['n_multi_leg']}  "
             f"mdabbert_fill method n_priced={fill['method']['n_priced']} n+={fill['method']['n_plus_ev']}",
@@ -1304,6 +1362,10 @@ def run_market_book(
             "method": "isolated max-edge (baseline)",
             "two_way_simul": "simultaneous Kelly on listed mutex contracts (backing only)",
             "method_simul": "simultaneous Kelly on listed mutex contracts (backing only)",
+            "two_way_favorite": (
+                "model-preferred moneyline only, e>0 on that side; "
+                "drop underround boards (q_A+q_B<1); no method max-edge"
+            ),
         },
         "slice_rules": {
             "card": (
@@ -1335,6 +1397,7 @@ def run_market_book(
     print(f"[market_book] wrote {json_path}", flush=True)
     png_path = out_dir / "market_book_yoy.png"
     from .tuning_plots import (
+        plot_market_book_favorite_compare,
         plot_market_book_fill_tape,
         plot_market_book_slices,
         plot_market_book_simul_compare,
@@ -1349,6 +1412,9 @@ def run_market_book(
     simul_png = out_dir / "market_book_simul.png"
     plot_market_book_simul_compare(report, simul_png)
     print(f"[market_book] wrote {simul_png}", flush=True)
+    fav_png = out_dir / "market_book_favorite.png"
+    plot_market_book_favorite_compare(report, fav_png)
+    print(f"[market_book] wrote {fav_png}", flush=True)
     fill_png = out_dir / "market_book_mdabbert_fill.png"
     plot_market_book_fill_tape(report, fill_png)
     print(f"[market_book] wrote {fill_png}", flush=True)

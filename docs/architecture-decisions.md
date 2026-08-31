@@ -548,6 +548,11 @@ does not remove max-edge bias). Full Kelly on the same point `P`. Putting lines 
 - **Do not splice odds tapes on one series.** Jurek is the primary YoY/slices/simul tape.
   Mdabbert fill is a nested rollup and its own figure. A year with no jurek 6-way is a
   gap, not a silent substitute.
+- **Model-favorite two-way** (`two_way_favorite`) is a comparison map on the same
+  walk-forward: stake only the side with larger `P(win)`, and only if that side has
+  `e>0`; drop underround boards. It does not shop the dog and does not stake method
+  max-edge. Same 2013–2025 window as the first book (selection bias if used to pick
+  a production map; freeze then grade a later window).
 - Choosing among the options above on the same 2013–2025 realized path that suggested
   them is selection bias; freeze a map, then grade a later window (or a pre-registered
   slice such as titles-only).

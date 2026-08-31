@@ -27,6 +27,7 @@ from src.eval.market_book import (
     kelly_fraction,
     median_float,
     pick_max_edge,
+    pick_model_favorite,
     realized_flat_pnl,
     realized_flat_pnl_simul,
     realized_multiplier,
@@ -34,6 +35,7 @@ from src.eval.market_book import (
     simul_fight_from_candidates,
     simultaneous_kelly_fractions,
     swap_method_decimals_to_a,
+    two_way_overround,
     _kelly_path,
 )
 from src.eval.tuning_plots import _priced_series
@@ -138,6 +140,28 @@ class TestKellyAndEdge(unittest.TestCase):
         # 0.7*2-1 = 0.4; 0.3*5-1 = 0.5
         self.assertEqual(pick.contract, "B")
         self.assertAlmostEqual(pick.e, 0.5)
+
+    def test_favorite_does_not_shop_the_dog(self):
+        hits = {"A": True, "B": False}
+        pick = pick_model_favorite(0.7, 2.0, 0.3, 5.0, hits)
+        assert pick is not None
+        self.assertEqual(pick.contract, "A")
+        self.assertAlmostEqual(pick.e, 0.4)
+        max_e = pick_max_edge([("A", 0.7, 2.0), ("B", 0.3, 5.0)], hits)
+        assert max_e is not None
+        self.assertEqual(max_e.contract, "B")
+
+    def test_favorite_skips_when_preferred_side_not_plus_ev(self):
+        pick = pick_model_favorite(0.55, 1.5, 0.45, 3.0, {"A": True, "B": False})
+        self.assertIsNone(pick)
+
+    def test_favorite_tie_is_no_bet(self):
+        pick = pick_model_favorite(0.5, 2.1, 0.5, 2.1, {"A": True, "B": False})
+        self.assertIsNone(pick)
+
+    def test_underround_flag(self):
+        self.assertLess(two_way_overround(3.6, 4.6), 1.0)
+        self.assertGreater(two_way_overround(1.91, 1.91), 1.0)
 
     def test_hit_miss_multipliers(self):
         f = 0.1
@@ -272,10 +296,28 @@ class TestOddsTapes(unittest.TestCase):
         self.assertEqual(rep["odds_tape"], "jurek")
         self.assertEqual(rep["two_way"]["n_priced"], 1)
         self.assertEqual(rep["two_way"]["n_plus_ev"], 1)
+        self.assertEqual(rep["two_way_favorite"]["n_priced"], 0)
         self.assertEqual(rep["method"]["n_priced"], 0)
         self.assertEqual(rep["mdabbert_fill"]["two_way"]["n_priced"], 1)
         self.assertEqual(rep["mdabbert_fill"]["method"]["n_priced"], 1)
         self.assertEqual(rep["mdabbert_fill"]["method"]["n_plus_ev"], 1)
+
+    def test_favorite_bucket_separate_from_max_edge(self):
+        acc = BookAccum()
+        tags = FightSliceTags(gender="men", weight_class="lightweight", card=())
+        max_pick = StakePick("B", 0.3, 5.0, 0.5, False)
+        fav_pick = StakePick("A", 0.7, 2.0, 0.4, True)
+        acc.add_fight(
+            tags, max_pick, True, None, False, source="jurek",
+            tw_fav=fav_pick, tw_fav_priced=True,
+        )
+        rep = acc.as_report()
+        self.assertEqual(rep["two_way"]["n_plus_ev"], 1)
+        self.assertEqual(rep["two_way_favorite"]["n_plus_ev"], 1)
+        self.assertEqual(rep["two_way"]["n_priced"], 1)
+        self.assertEqual(rep["two_way_favorite"]["n_priced"], 1)
+        self.assertAlmostEqual(rep["two_way_favorite"]["mean_model_p"], 0.7)
+        self.assertAlmostEqual(rep["two_way"]["mean_model_p"], 0.3)
 
     def test_priced_series_gaps_unpriced_years(self):
         years_map = {

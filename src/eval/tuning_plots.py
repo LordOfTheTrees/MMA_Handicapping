@@ -412,3 +412,71 @@ def plot_market_book_fill_tape(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
+
+
+def plot_market_book_favorite_compare(
+    report: Mapping[str, Any],
+    out_path: Path,
+    *,
+    title: str = "Jurek two-way: max-edge vs model-favorite only",
+) -> None:
+    """
+    Max-edge baseline vs model-preferred moneyline (e>0 on that side, no underround).
+    Method is not on this map.
+    """
+    years_map = report.get("years") or {}
+    years = sorted(int(y) for y in years_map.keys())
+    if not years:
+        return
+    tw_k = _priced_series(years_map, years, "two_way", "full_kelly", "realized_log_growth")
+    fv_k = _priced_series(years_map, years, "two_way_favorite", "full_kelly", "realized_log_growth")
+    tw_q = _priced_series(years_map, years, "two_way", "quarter_kelly", "realized_log_growth")
+    fv_q = _priced_series(years_map, years, "two_way_favorite", "quarter_kelly", "realized_log_growth")
+    tw_1 = _priced_series(years_map, years, "two_way", "flat_1u", "realized_roi")
+    fv_1 = _priced_series(years_map, years, "two_way_favorite", "flat_1u", "realized_roi")
+    tw_hit = _priced_series(years_map, years, "two_way", "hit_rate")
+    fv_hit = _priced_series(years_map, years, "two_way_favorite", "hit_rate")
+    tw_p = _priced_series(years_map, years, "two_way", "mean_model_p")
+    fv_p = _priced_series(years_map, years, "two_way_favorite", "mean_model_p")
+    tw_qimp = _priced_series(years_map, years, "two_way", "mean_posted_implied")
+    fv_qimp = _priced_series(years_map, years, "two_way_favorite", "mean_posted_implied")
+
+    plt = _plt()
+    fig, axes = plt.subplots(3, 1, figsize=(10, 9.5), constrained_layout=True, sharex=True)
+    ax0, ax1, ax2 = axes
+    ax0.plot(years, tw_k, "o--", color="#9ecae1", label="max-edge full Kelly", markersize=4)
+    ax0.plot(years, fv_k, "s-", color="#3182bd", label="favorite-only full Kelly", markersize=5)
+    ax0.plot(years, tw_q, "o:", color="#6baed6", label="max-edge 1/4 Kelly", markersize=4, alpha=0.85)
+    ax0.plot(years, fv_q, "s:", color="#08519c", label="favorite-only 1/4 Kelly", markersize=4)
+    ax0.axhline(0.0, color="#888", linewidth=0.6)
+    ax0.set_ylabel("Log-growth")
+    ax0.legend(loc="best", fontsize=7, ncol=2)
+    ax0.grid(True, alpha=0.3)
+    ax0.set_title("Kelly; favorite-only does not shop the dog")
+
+    ax1.plot(years, tw_1, "o--", color="#9ecae1", label="max-edge 1u", markersize=4)
+    ax1.plot(years, fv_1, "s-", color="#3182bd", label="favorite-only 1u", markersize=5)
+    ax1.axhline(0.0, color="#888", linewidth=0.6)
+    ax1.set_ylabel("1u ROI (profit / 100u bank)")
+    ax1.legend(loc="best", fontsize=7)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title("Flat 1u")
+
+    ax2.plot(years, tw_p, "--", color="#9ecae1", label="max-edge mean P", linewidth=1.5)
+    ax2.plot(years, fv_p, "-", color="#3182bd", label="favorite-only mean P", linewidth=1.5)
+    ax2.plot(years, tw_qimp, ":", color="#a1d99b", label="max-edge mean q", linewidth=1.5)
+    ax2.plot(years, fv_qimp, ":", color="#31a354", label="favorite-only mean q", linewidth=1.5)
+    ax2.plot(years, tw_hit, "o--", color="#fc9272", label="max-edge hit", markersize=4)
+    ax2.plot(years, fv_hit, "s-", color="#de2d26", label="favorite-only hit", markersize=5)
+    ax2.set_xlabel("Calendar year (eval)")
+    ax2.set_ylabel("Probability")
+    ax2.set_ylim(0.0, 1.0)
+    ax2.legend(loc="best", fontsize=6, ncol=2)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_title("Staked P vs posted implied vs hit rate")
+
+    fig.suptitle(title, fontsize=11)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
