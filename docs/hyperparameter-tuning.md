@@ -85,7 +85,7 @@ The inner objective must **not** use the label distribution of year **Y** to pic
 
 ## 8. What the harness does (implementation)
 
-- **`fit_predictor_for_train_before`:** load data, `build_elo` on full history, set `Config.holdout_start_date` so regression trains only on rows with `fight_date` **strictly before** the given cutoff (i.e. train through the prior calendar year when scoring year *v*). Optional **ELO cache** file reuses the same PIT ELO build across many folds when fight count and `ELOConfig` match.
+- **`fit_predictor_for_train_before`:** load data, `build_elo` on full history, set `Config.holdout_start_date` so regression trains only on rows with `fight_date` **strictly before** the given cutoff (i.e. train through the prior calendar year when scoring year *v*). Optional **ELO cache** file reuses the same PIT ELO build across many folds when fight count and `ELOConfig` match. Optional ``fit_regression=False`` builds ``X``/``y`` only (skip L-BFGS; used by the XGBoost market-book sidecar).
 - **`default_inner_eval_years`:** which calendar years are included in the **inner** mean (full range vs last *k* years before outer *Y*).
 - **`inner_mean_log_loss` / `inner_mean_log_loss_last_k_years`:** inner score for one `Config` (for random-search trial ranking with last-*k* inner years for cost control).
 - **`forward_log_loss_for_eval_year`:** one train+score for a **single** forward calendar year (used for the outer year’s point and for pristine years).

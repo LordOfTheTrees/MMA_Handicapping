@@ -75,6 +75,39 @@ _DEFAULT_MDABBERT = Path("Public datasets") / "Kaggle" / "mdabbert ultimate" / "
 # YoY / slices / simul figures use this tape only. Fill is a separate rollup, never spliced.
 PRIMARY_ODDS_SOURCE = "jurek"
 
+
+def align_class_proba(raw: np.ndarray, classes, n_classes: int = 6) -> np.ndarray:
+    """Map sklearn / XGBoost ``predict_proba`` columns onto indices ``0 .. n_classes-1``.
+
+    Missing classes stay 0. Used when a head (e.g. XGB) omits a rare label from
+    an early train fold.
+    """
+    arr = np.asarray(raw, dtype=float)
+    if arr.ndim != 2:
+        raise ValueError("raw must be 2-d (n_rows, n_model_classes)")
+    out = np.zeros((arr.shape[0], int(n_classes)), dtype=float)
+    for j, c in enumerate(classes):
+        idx = int(c)
+        if 0 <= idx < int(n_classes):
+            out[:, idx] = arr[:, j]
+    return out
+
+
+def predict_p6_from_included(included: Sequence[FightRecord], probs: np.ndarray):
+    """``book_year`` callback: lookup 6-class ``P`` by (A, B, date)."""
+    table = {
+        (f.fighter_a_id, f.fighter_b_id, f.fight_date): np.asarray(probs[i], dtype=float)
+        for i, f in enumerate(included)
+    }
+
+    def predict_p6(a_id: str, b_id: str, _wc, fdate):
+        p = table.get((a_id, b_id, fdate))
+        if p is None:
+            raise KeyError(f"no P for ({a_id}, {b_id}, {fdate})")
+        return p
+
+    return predict_p6
+
 # Pre-registered card layout (not searched). mdabbert lists fights billed/main-first.
 # Index 0 = billed headliner; first MAIN_CARD_SIZE rows = main card; index MAIN_CARD_SIZE
 # = featured prelim (prelim main event); later rows = generic prelims (ESPN + early).

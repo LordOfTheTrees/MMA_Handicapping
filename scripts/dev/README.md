@@ -14,6 +14,7 @@ python scripts/dev/validate_fighter_id_lex_order.py
 | `smoke_bootstrap_timing.py` | Estimate full-train bootstrap wall time from a short probe |
 | `pilot_lbfgs_stopping.py` | L-BFGS-B stopping grid on the training matrix |
 | `benchmark_xgboost_vs_holdout.py` | Optional XGBoost baseline (see `requirements-benchmark.txt`) |
+| `market_book_xgboost.py` | Same walk-forward +EV book as `python -m src.eval.market_book`, XGBoost head; writes `data/market_eval_xgb/` (not spliced onto the logit series) |
 | `predict_cold_corners.py` | Synthetic vs synthetic / known-ID “cold corner” predictions |
 | `audit_lex_id_age_cohort.py` | Lex-ID vs age cohort bias audit (figures + stats) |
 

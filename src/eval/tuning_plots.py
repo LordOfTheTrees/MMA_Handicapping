@@ -480,3 +480,72 @@ def plot_market_book_favorite_compare(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
+
+
+def plot_market_book_head_compare(
+    logit: Mapping[str, Any],
+    other: Mapping[str, Any],
+    out_path: Path,
+    *,
+    other_label: str = "XGBoost",
+    title: str = "Logit vs XGBoost heads, same maps, jurek tape",
+) -> None:
+    """Overlay two walk-forward books that share years, tapes, and stake maps."""
+    years_l = logit.get("years") or {}
+    years_o = other.get("years") or {}
+    years = sorted(int(y) for y in set(years_l) & set(years_o))
+    if not years:
+        return
+
+    def _both(book: str, *keys: str):
+        return (
+            _priced_series(years_l, years, book, *keys),
+            _priced_series(years_o, years, book, *keys),
+        )
+
+    tw_1_l, tw_1_o = _both("two_way", "flat_1u", "realized_roi")
+    fv_1_l, fv_1_o = _both("two_way_favorite", "flat_1u", "realized_roi")
+    mh_1_l, mh_1_o = _both("method", "flat_1u", "realized_roi")
+    fv_hit_l, fv_hit_o = _both("two_way_favorite", "hit_rate")
+    fv_p_l, fv_p_o = _both("two_way_favorite", "mean_model_p")
+    fv_q_l, fv_q_o = _both("two_way_favorite", "mean_posted_implied")
+
+    plt = _plt()
+    fig, axes = plt.subplots(3, 1, figsize=(10, 10), constrained_layout=True, sharex=True)
+    ax0, ax1, ax2 = axes
+    ax0.plot(years, tw_1_l, "o--", color="#9ecae1", label="logit max-edge 1u", markersize=4)
+    ax0.plot(years, tw_1_o, "s-", color="#3182bd", label=f"{other_label} max-edge 1u", markersize=5)
+    ax0.plot(years, fv_1_l, "o:", color="#a1d99b", label="logit favorite 1u", markersize=4)
+    ax0.plot(years, fv_1_o, "s-", color="#31a354", label=f"{other_label} favorite 1u", markersize=5)
+    ax0.axhline(0.0, color="#888", linewidth=0.6)
+    ax0.set_ylabel("1u ROI")
+    ax0.legend(loc="best", fontsize=7, ncol=2)
+    ax0.grid(True, alpha=0.3)
+    ax0.set_title("Two-way 1u: max-edge vs favorite-only")
+
+    ax1.plot(years, mh_1_l, "o--", color="#fdae6b", label="logit method 1u", markersize=4)
+    ax1.plot(years, mh_1_o, "s-", color="#e6550d", label=f"{other_label} method 1u", markersize=5)
+    ax1.axhline(0.0, color="#888", linewidth=0.6)
+    ax1.set_ylabel("1u ROI")
+    ax1.legend(loc="best", fontsize=7)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title("Method max-edge 1u (the rare-class map)")
+
+    ax2.plot(years, fv_p_l, "--", color="#9ecae1", label="logit fav P", linewidth=1.5)
+    ax2.plot(years, fv_p_o, "-", color="#3182bd", label=f"{other_label} fav P", linewidth=1.5)
+    ax2.plot(years, fv_q_l, ":", color="#a1d99b", label="logit fav q", linewidth=1.5)
+    ax2.plot(years, fv_q_o, ":", color="#31a354", label=f"{other_label} fav q", linewidth=1.5)
+    ax2.plot(years, fv_hit_l, "o--", color="#fc9272", label="logit fav hit", markersize=4)
+    ax2.plot(years, fv_hit_o, "s-", color="#de2d26", label=f"{other_label} fav hit", markersize=5)
+    ax2.set_xlabel("Calendar year (eval)")
+    ax2.set_ylabel("Probability")
+    ax2.set_ylim(0.0, 1.0)
+    ax2.legend(loc="best", fontsize=6, ncol=2)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_title("Favorite-only P vs posted q vs hit")
+
+    fig.suptitle(title, fontsize=11)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)

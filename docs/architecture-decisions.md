@@ -553,6 +553,9 @@ does not remove max-edge bias). Full Kelly on the same point `P`. Putting lines 
   `e>0`; drop underround boards. It does not shop the dog and does not stake method
   max-edge. Same 2013–2025 window as the first book (selection bias if used to pick
   a production map; freeze then grade a later window).
+- **XGBoost head** (`scripts/dev/market_book_xgboost.py`) is a sidecar on the same
+  maps and 12 features, not a production replacement. Results go to
+  `data/market_eval_xgb/` and are not spliced onto the logit series.
 - Choosing among the options above on the same 2013–2025 realized path that suggested
   them is selection bias; freeze a map, then grade a later window (or a pre-registered
   slice such as titles-only).

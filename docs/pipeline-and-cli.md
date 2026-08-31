@@ -145,6 +145,8 @@ Outputs: `data/market_eval/market_book.json` (per-year **jurek** rollup plus **o
 
 One regression fit per year; ELO cache default `<out-dir>/elo_walkforward_cache.pkl` (`--elo-cache` to override). Does **not** change `train` / `eval-holdout` / Phase 3. ADR-21 `min_edge` is **not** searched. Display/training softmax stays a 100% stack; contract-level maps that leave it are **ADR-28**. This CLI also writes a **simultaneous** Kelly comparison (`two_way_simul` / `method_simul`, `market_book_simul.png`) and a **model-favorite** two-way (`two_way_favorite`: preferred side only if `e>0`, drop underround boards; `market_book_favorite.png`). Neither replaces the max-edge baseline.
 
+An optional **XGBoost head** on the same features, join, and maps lives in [`scripts/dev/market_book_xgboost.py`](../scripts/dev/market_book_xgboost.py) (`pip install -r requirements-benchmark.txt`). It writes `data/market_eval_xgb/` and an overlay `market_book_logit_vs_xgb.png`. It is **not** spliced onto the logit series and does **not** change production train / `predict`.
+
 ---
 
 ## 5. Weight class aliases

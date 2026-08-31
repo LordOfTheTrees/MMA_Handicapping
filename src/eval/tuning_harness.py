@@ -84,6 +84,7 @@ def fit_predictor_for_train_before(
     *,
     skip_bootstrap: bool = False,
     elo_cache_path: Optional[Path] = None,
+    fit_regression: bool = True,
 ) -> MMAPredictor:
     """
     Full pipeline: load data, PIT ELO on all fights, fit regression on Tier-1 rows
@@ -93,6 +94,7 @@ def fit_predictor_for_train_before(
     (CIs are not used for point log-loss in tuning).
     ``elo_cache_path``: if set, reuse / save a point-in-time ELO cache (same fight count
     and ``ELOConfig``) to skip full ``build_elo`` across many walk-forward folds.
+    ``fit_regression``: if False, build ``X``/``y`` only (``train_regression(fit_model=False)``).
     """
     c = copy.deepcopy(config)
     c.holdout_start_date = train_before
@@ -110,7 +112,7 @@ def fit_predictor_for_train_before(
         p.build_elo()
         if cache:
             p.save_elo_cache(cache)
-    p.train_regression()
+    p.train_regression(fit_model=fit_regression)
     return p
 
 

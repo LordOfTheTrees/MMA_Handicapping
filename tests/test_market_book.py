@@ -14,6 +14,7 @@ from src.eval.market_book import (
     FightSliceTags,
     PostedLines,
     StakePick,
+    align_class_proba,
     american_to_decimal,
     assert_out_dir_allowed,
     card_slots_from_billed_index,
@@ -28,6 +29,7 @@ from src.eval.market_book import (
     median_float,
     pick_max_edge,
     pick_model_favorite,
+    predict_p6_from_included,
     realized_flat_pnl,
     realized_flat_pnl_simul,
     realized_multiplier,
@@ -343,6 +345,31 @@ class TestOddsTapes(unittest.TestCase):
         )
         self.assertTrue(jurek[0] != jurek[0])
         self.assertAlmostEqual(fill[0], 1.0)
+
+
+class TestAlignClassProba(unittest.TestCase):
+    def test_missing_class_stays_zero(self):
+        import numpy as np
+
+        raw = np.array([[0.2, 0.5, 0.3], [0.1, 0.1, 0.8]])
+        out = align_class_proba(raw, classes=[0, 1, 3], n_classes=6)
+        self.assertEqual(out.shape, (2, 6))
+        self.assertAlmostEqual(out[0, 0], 0.2)
+        self.assertAlmostEqual(out[0, 1], 0.5)
+        self.assertAlmostEqual(out[0, 3], 0.3)
+        self.assertAlmostEqual(out[0, 2], 0.0)
+        self.assertAlmostEqual(out[1, 3], 0.8)
+
+    def test_lookup_by_a_b_date(self):
+        import numpy as np
+
+        f = _fight()
+        probs = np.array([[0.1, 0.2, 0.3, 0.15, 0.15, 0.1]])
+        fn = predict_p6_from_included([f], probs)
+        got = fn(f.fighter_a_id, f.fighter_b_id, f.weight_class, f.fight_date)
+        self.assertAlmostEqual(float(got[2]), 0.3)
+        with self.assertRaises(KeyError):
+            fn("zzz", f.fighter_b_id, f.weight_class, f.fight_date)
 
 
 if __name__ == "__main__":
