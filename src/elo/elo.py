@@ -9,6 +9,7 @@ Architecture responsibilities (Section 4):
   - Time-based uncertainty growth via Kalman predict step (elapsed since last fight **any** division)
   - Dual role: quality weight for feature construction AND regression feature
 """
+from bisect import bisect_left
 from collections import defaultdict
 from datetime import date
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -107,6 +108,19 @@ class ELOModel:
         # Optional: (fighter_id, wc) -> [(fight_date, elo_after_fight, opponent_id), ...]
         self._trajectories: Dict[Tuple[str, WeightClass], List[Tuple[date, float, str]]] = {}
         self._record_trajectories: bool = False
+        # --- Point-in-time index (always maintained; correctness, not diagnostics) ---
+        # Post-fight state snapshots per key, chronological. ``_history_dates`` mirrors
+        # the dates for O(log n) bisect. Together these let ``get_state(as_of_date=...)``
+        # answer "what did we know entering a bout on this date" instead of returning the
+        # terminal state, which silently leaked future results into training features.
+        self._history: Dict[Tuple[str, WeightClass], List[Tuple[KalmanState, int, DataTier]]] = {}
+        self._history_dates: Dict[Tuple[str, WeightClass], List[date]] = {}
+        # State before the first observed bout in this division (pedigree / transfer / flat prior).
+        self._initial_states: Dict[Tuple[str, WeightClass], KalmanState] = {}
+        # Chronological cage dates anywhere, for the point-in-time global layoff clock (ADR-15).
+        self._global_dates: Dict[str, List[date]] = {}
+        # False only for models unpickled from before the PIT index existed.
+        self._has_pit_history: bool = True
 
     def __setstate__(self, state: dict) -> None:
         """Pickle migration: older models lack ``_last_fight_global``; backfill from per-division dates."""
@@ -123,6 +137,16 @@ class ELOModel:
                     if cur is None or d0 > cur:
                         g[fid] = d0
             self._last_fight_global = g
+        # Pickles written before the point-in-time index cannot answer historical
+        # queries. Rather than silently falling back to the terminal state (the
+        # original lookahead bug), mark them and let get_state() refuse below.
+        if "_history" not in self.__dict__:
+            self._history = {}
+            self._history_dates = {}
+            self._initial_states = {}
+            self._global_dates = {}
+            self._has_pit_history = not self._states  # empty model is trivially fine
+        self.__dict__.setdefault("_has_pit_history", True)
 
     # ------------------------------------------------------------------
     # Key helpers
@@ -139,6 +163,7 @@ class ELOModel:
                 value=self.config.initial_elo,
                 variance=self.config.kalman_measurement_noise * 10.0,
             )
+            self._initial_states.setdefault(key, self._states[key])
         return self._states[key]
 
     # ------------------------------------------------------------------
@@ -169,6 +194,7 @@ class ELOModel:
             value=self.config.initial_elo + boost,
             variance=self.config.kalman_measurement_noise * 12.0,
         )
+        self._initial_states[key] = self._states[key]
 
     def transfer_from_tier(
         self,
@@ -194,6 +220,7 @@ class ELOModel:
             value=transferred,
             variance=self.config.kalman_measurement_noise * 8.0,
         )
+        self._initial_states[key] = self._states[key]
 
     # ------------------------------------------------------------------
     # Processing fights
@@ -269,6 +296,7 @@ class ELOModel:
                 self._last_fight_global[fid] = fight.fight_date
                 self._n_fights[key] += 1
                 self._update_best_tier(key, fight.tier)
+                self._record_pit_snapshot(key, fid, fight.fight_date)
             return
 
         a_won = fight.winner_id == a_id
@@ -293,6 +321,7 @@ class ELOModel:
             self._last_fight_global[fid] = fight.fight_date
             self._n_fights[key] += 1
             self._update_best_tier(key, fight.tier)
+            self._record_pit_snapshot(key, fid, fight.fight_date)
 
     def _append_trajectory_snapshots(self, fight: FightRecord) -> None:
         """Record post-fight Kalman ELO mean for both corners in this bout's weight class."""
@@ -324,6 +353,68 @@ class ELOModel:
         """Yield (fighter_id, weight_class) keys that have recorded trajectory points."""
         yield from self._trajectories.keys()
 
+    def _record_pit_snapshot(
+        self,
+        key: Tuple[str, WeightClass],
+        fighter_id: str,
+        fight_date: date,
+    ) -> None:
+        """
+        Append the post-fight state for ``key`` to the point-in-time index.
+
+        Snapshots are **post-fight**, so a strict ``date <`` lookup in
+        :meth:`_state_as_of` returns the state a fighter carried *into* a bout on
+        that date — exactly what pre-fight features need.
+        """
+        state = self._states.get(key)
+        if state is None:
+            return
+        self._history.setdefault(key, []).append(
+            (state, self._n_fights[key], self._best_tier.get(key, DataTier.TIER_3))
+        )
+        self._history_dates.setdefault(key, []).append(fight_date)
+        self._global_dates.setdefault(fighter_id, []).append(fight_date)
+
+    def _last_global_date_before(self, fighter_id: str, as_of_date: date) -> Optional[date]:
+        """Most recent cage date in **any** division strictly before ``as_of_date``."""
+        dates = self._global_dates.get(fighter_id)
+        if not dates:
+            return None
+        idx = bisect_left(dates, as_of_date)
+        return dates[idx - 1] if idx > 0 else None
+
+    def _state_as_of(
+        self,
+        key: Tuple[str, WeightClass],
+        as_of_date: date,
+    ) -> Tuple[KalmanState, Optional[date], int, DataTier]:
+        """
+        State/bookkeeping for ``key`` as known strictly **before** ``as_of_date``.
+
+        Returns the division's cold-start prior when no bout precedes that date.
+
+        Note: two bouts on the *same* calendar date (same-night tournaments) both
+        resolve to the state entering the first of them. That is stale by one bout
+        but never forward-looking, which is the safe direction.
+        """
+        dates = self._history_dates.get(key)
+        if not dates:
+            return self._initial_state_for(key), None, 0, DataTier.TIER_3
+        idx = bisect_left(dates, as_of_date)
+        if idx == 0:
+            return self._initial_state_for(key), None, 0, DataTier.TIER_3
+        state, n_fights, tier = self._history[key][idx - 1]
+        return state, dates[idx - 1], n_fights, tier
+
+    def _initial_state_for(self, key: Tuple[str, WeightClass]) -> KalmanState:
+        init = self._initial_states.get(key)
+        if init is not None:
+            return init
+        return KalmanState(
+            value=self.config.initial_elo,
+            variance=self.config.kalman_measurement_noise * 10.0,
+        )
+
     def _update_best_tier(self, key: Tuple[str, WeightClass], tier: DataTier) -> None:
         current = self._best_tier.get(key)
         if current is None or tier.value < current.value:
@@ -342,29 +433,72 @@ class ELOModel:
         """
         Return ELO state for a fighter in a weight class.
 
-        If as_of_date is given, applies the Kalman predict step for days
-        elapsed since last fight WITHOUT modifying stored state.
-        This ensures lookahead-free queries during training data construction.
+        If ``as_of_date`` is given the result is **point-in-time**: it reflects only
+        bouts that occurred strictly before that date, then applies the Kalman predict
+        step for the layoff since the fighter's last bout in any division (ADR-15).
+        Stored state is never modified.
+
+        Passing a future ``as_of_date`` (live inference on an upcoming card) naturally
+        resolves to the terminal state plus layoff inflation, which is what production
+        prediction wants.
+
+        Raises:
+            RuntimeError: if a historical ``as_of_date`` is requested on a model
+                unpickled from before the point-in-time index existed. Such models can
+                only report terminal state, and answering anyway would silently
+                reintroduce lookahead into training features.
         """
         key = self._key(fighter_id, wc)
-        state = self._get_or_init(fighter_id, wc)
 
-        if as_of_date is not None:
-            last = self._last_fight_global[fighter_id]
-            if last is not None:
-                days = max(0, (as_of_date - last).days)
-                if days > 0:
-                    state = kalman_predict(state, days, self.config.kalman_process_noise)
+        if as_of_date is None:
+            state = self._get_or_init(fighter_id, wc)
+            return ELOState(
+                fighter_id=fighter_id,
+                weight_class=wc,
+                elo=state.value,
+                uncertainty=state.variance,
+                last_fight_date=self._last_fight[key],
+                n_fights=self._n_fights[key],
+                primary_tier=self._best_tier.get(key, DataTier.TIER_3),
+            )
+
+        if not self._has_pit_history:
+            self._reject_stale_pit_query(as_of_date)
+            # Query is beyond all known history: terminal state is the correct answer.
+            state = self._get_or_init(fighter_id, wc)
+            last_in_wc = self._last_fight[key]
+            n_fights = self._n_fights[key]
+            tier = self._best_tier.get(key, DataTier.TIER_3)
+            last_global = self._last_fight_global[fighter_id]
+        else:
+            state, last_in_wc, n_fights, tier = self._state_as_of(key, as_of_date)
+            last_global = self._last_global_date_before(fighter_id, as_of_date)
+
+        if last_global is not None:
+            days = max(0, (as_of_date - last_global).days)
+            if days > 0:
+                state = kalman_predict(state, days, self.config.kalman_process_noise)
 
         return ELOState(
             fighter_id=fighter_id,
             weight_class=wc,
             elo=state.value,
             uncertainty=state.variance,
-            last_fight_date=self._last_fight[key],
-            n_fights=self._n_fights[key],
-            primary_tier=self._best_tier.get(key, DataTier.TIER_3),
+            last_fight_date=last_in_wc,
+            n_fights=n_fights,
+            primary_tier=tier,
         )
+
+    def _reject_stale_pit_query(self, as_of_date: date) -> None:
+        """Refuse historical queries on a pre-index pickle; allow forward-looking ones."""
+        known = [d for d in self._last_fight_global.values() if d is not None]
+        if known and as_of_date <= max(known):
+            raise RuntimeError(
+                f"get_state(as_of_date={as_of_date}) needs the point-in-time ELO index, "
+                "which this model predates (it was pickled/cached before the index existed). "
+                "Rebuild with build_elo() — a stale artifact would return terminal ELO and "
+                "silently leak future results into pre-fight features."
+            )
 
     def days_since_last_fight_global(self, fighter_id: str, as_of_date: date) -> int:
         """

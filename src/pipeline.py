@@ -218,7 +218,9 @@ class MMAPredictor:
         )
         return self
 
-    _ELO_CACHE_VERSION = 1
+    # v2: ELO models carry a point-in-time snapshot index. v1 caches hold only terminal
+    # state and would leak future results into pre-fight features, so they are rejected.
+    _ELO_CACHE_VERSION = 2
 
     @staticmethod
     def _elo_config_signature(elo: ELOConfig) -> dict:
