@@ -10,7 +10,10 @@ from pathlib import Path
 from src.data.schema import DataTier, FightRecord, ResultMethod, WeightClass
 from src.eval.market_book import (
     JSON_EXPORTS_DIR,
+    BookAccum,
+    FightSliceTags,
     PostedLines,
+    StakePick,
     american_to_decimal,
     assert_out_dir_allowed,
     card_slots_from_billed_index,
@@ -25,9 +28,15 @@ from src.eval.market_book import (
     median_float,
     pick_max_edge,
     realized_flat_pnl,
+    realized_flat_pnl_simul,
     realized_multiplier,
+    realized_multiplier_simul,
+    simul_fight_from_candidates,
+    simultaneous_kelly_fractions,
     swap_method_decimals_to_a,
+    _kelly_path,
 )
+from src.eval.tuning_plots import _priced_series
 
 
 def _fight(*, a: str = "aaa", b: str = "bbb", fid: str = "deadbeef") -> FightRecord:
@@ -146,6 +155,49 @@ class TestKellyAndEdge(unittest.TestCase):
         self.assertTrue(math.isfinite(g))
         self.assertGreater(g, 0.0)
 
+    def test_simul_two_way_matches_isolated(self):
+        p, d = 0.6, 2.0
+        f_iso = kelly_fraction(edge(p, d), d)
+        fs = simultaneous_kelly_fractions([p, 1.0 - p], [d, 2.0])
+        self.assertAlmostEqual(fs[0], f_iso)
+        self.assertEqual(fs[1], 0.0)
+
+    def test_simul_abstains_when_both_negative(self):
+        fs = simultaneous_kelly_fractions([0.4, 0.6], [2.0, 1.5])
+        self.assertEqual(fs, [0.0, 0.0])
+
+    def test_simul_splits_two_plus_ev_method_classes(self):
+        ps = [0.40, 0.25, 0.10, 0.10, 0.10, 0.05]
+        qs = [0.33, 0.15, 0.20, 0.20, 0.15, 0.10]
+        ds = [1.0 / q for q in qs]
+        fs = simultaneous_kelly_fractions(ps, ds)
+        self.assertGreater(fs[0], 0.0)
+        self.assertGreater(fs[1], 0.0)
+        self.assertEqual(sum(1 for f in fs if f > 0.0), 2)
+        pick = pick_max_edge(
+            [(str(i), ps[i], ds[i]) for i in range(6)],
+            {str(i): False for i in range(6)},
+        )
+        assert pick is not None
+        self.assertEqual(pick.contract, "1")
+
+    def test_simul_fight_one_leg_matches_isolated_multiplier(self):
+        fight = simul_fight_from_candidates(
+            [("A", 0.6, 2.0), ("B", 0.4, 2.0)],
+            {"A": True, "B": False},
+        )
+        assert fight is not None
+        self.assertEqual(len(fight.legs), 1)
+        f = kelly_fraction(edge(0.6, 2.0), 2.0)
+        self.assertAlmostEqual(realized_multiplier_simul(fight, 1.0), realized_multiplier(True, f, 2.0))
+        self.assertAlmostEqual(realized_flat_pnl_simul(fight), realized_flat_pnl(True, 2.0))
+
+    def test_quarter_kelly_scales_mean_f(self):
+        pk = StakePick(contract="A", p=0.6, decimal_odds=2.0, e=0.2, hit=True)
+        full = _kelly_path([pk], 1.0)
+        quarter = _kelly_path([pk], 0.25)
+        self.assertAlmostEqual(quarter["mean_f"], full["mean_f"] * 0.25)
+
     def test_two_way_hits_follow_y(self):
         self.assertEqual(fill_two_way_hits(0)["A"], True)
         self.assertEqual(fill_two_way_hits(4)["A"], False)
@@ -206,6 +258,49 @@ class TestSlices(unittest.TestCase):
     def test_doubleheader_skips_position(self):
         self.assertEqual(card_slots_from_billed_index(0, 21, is_title=True), ("title",))
         self.assertEqual(card_slots_from_billed_index(None, 12, is_title=False), ())
+
+
+class TestOddsTapes(unittest.TestCase):
+    def test_mdabbert_fill_does_not_enter_jurek_buckets(self):
+        acc = BookAccum()
+        tags = FightSliceTags(gender="men", weight_class="lightweight", card=())
+        jurek_pick = StakePick("A", 0.6, 2.0, 0.2, True)
+        fill_pick = StakePick("B", 0.4, 3.0, 0.2, False)
+        acc.add_fight(tags, jurek_pick, True, None, False, source="jurek")
+        acc.add_fight(tags, fill_pick, True, fill_pick, True, source="mdabbert")
+        rep = acc.as_report()
+        self.assertEqual(rep["odds_tape"], "jurek")
+        self.assertEqual(rep["two_way"]["n_priced"], 1)
+        self.assertEqual(rep["two_way"]["n_plus_ev"], 1)
+        self.assertEqual(rep["method"]["n_priced"], 0)
+        self.assertEqual(rep["mdabbert_fill"]["two_way"]["n_priced"], 1)
+        self.assertEqual(rep["mdabbert_fill"]["method"]["n_priced"], 1)
+        self.assertEqual(rep["mdabbert_fill"]["method"]["n_plus_ev"], 1)
+
+    def test_priced_series_gaps_unpriced_years(self):
+        years_map = {
+            "2024": {"method": {"n_priced": 10, "full_kelly": {"realized_log_growth": -1.0}}},
+            "2025": {"method": {"n_priced": 0, "full_kelly": {"realized_log_growth": 99.0}}},
+        }
+        got = _priced_series(years_map, [2024, 2025], "method", "full_kelly", "realized_log_growth")
+        self.assertAlmostEqual(got[0], -1.0)
+        self.assertTrue(got[1] != got[1])  # NaN: do not plot the 99 fake splice
+
+    def test_priced_series_fill_key_is_separate(self):
+        years_map = {
+            "2025": {
+                "method": {"n_priced": 0},
+                "mdabbert_fill": {
+                    "method": {"n_priced": 5, "flat_1u": {"realized_roi": 1.0}},
+                },
+            }
+        }
+        jurek = _priced_series(years_map, [2025], "method", "flat_1u", "realized_roi")
+        fill = _priced_series(
+            years_map, [2025], "method", "flat_1u", "realized_roi", fill_key="mdabbert_fill"
+        )
+        self.assertTrue(jurek[0] != jurek[0])
+        self.assertAlmostEqual(fill[0], 1.0)
 
 
 if __name__ == "__main__":

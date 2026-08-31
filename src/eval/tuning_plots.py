@@ -14,6 +14,35 @@ def _plt():
     return plt
 
 
+def _priced_series(
+    years_map: Mapping[str, Any],
+    years: Sequence[int],
+    book: str,
+    *keys: str,
+    fill_key: Optional[str] = None,
+) -> List[float]:
+    """
+    Yearly metric, NaN when that tape has no priced fights.
+    ``fill_key`` reads ``years[y][fill_key][book]`` (mdabbert fill); default is primary jurek.
+    """
+    out: List[float] = []
+    for year in years:
+        node: Any = years_map.get(str(year)) or {}
+        if fill_key:
+            node = node.get(fill_key) or {}
+        cur: Any = node.get(book) or {}
+        if int(cur.get("n_priced") or 0) <= 0:
+            out.append(float("nan"))
+            continue
+        try:
+            for k in keys:
+                cur = cur[k]
+            out.append(float(cur))
+        except (KeyError, TypeError, ValueError):
+            out.append(float("nan"))
+    return out
+
+
 def plot_pristine_yoy_bars(
     years: Sequence[int],
     log_loss: Sequence[float],
@@ -130,35 +159,31 @@ def plot_market_book_yoy(
     report: Mapping[str, Any],
     out_path: Path,
     *,
-    title: str = "Walk-forward +EV book: projected vs realized (Config frozen)",
+    title: str = "Jurek tape only: projected vs realized (mdabbert fill not shown)",
 ) -> None:
     """
-    Two panels: Kelly log-growth (full + half) and 1u ROI.
-    Two-way vs method; projected series drawn lighter.
+    Two panels: Kelly log-growth and 1u ROI on the **jurek** tape.
+    Years with no jurek method (or two-way) are a gap, not a fill splice.
     """
     years_map = report.get("years") or {}
     years = sorted(int(y) for y in years_map.keys())
     if not years:
         return
 
-    def _cell(year: int, book: str, *keys: str) -> float:
-        cur: Any = years_map[str(year)][book]
-        for k in keys:
-            cur = cur[k]
-        return float(cur)
-
-    tw_k_r = [_cell(y, "two_way", "full_kelly", "realized_log_growth") for y in years]
-    tw_k_p = [_cell(y, "two_way", "full_kelly", "projected_log_growth") for y in years]
-    mh_k_r = [_cell(y, "method", "full_kelly", "realized_log_growth") for y in years]
-    mh_k_p = [_cell(y, "method", "full_kelly", "projected_log_growth") for y in years]
-    tw_h_r = [_cell(y, "two_way", "half_kelly", "realized_log_growth") for y in years]
-    mh_h_r = [_cell(y, "method", "half_kelly", "realized_log_growth") for y in years]
-    tw_1_r = [_cell(y, "two_way", "flat_1u", "realized_roi") for y in years]
-    tw_1_p = [_cell(y, "two_way", "flat_1u", "projected_roi") for y in years]
-    mh_1_r = [_cell(y, "method", "flat_1u", "realized_roi") for y in years]
-    mh_1_p = [_cell(y, "method", "flat_1u", "projected_roi") for y in years]
-    tw_cov = [_cell(y, "two_way", "coverage") for y in years]
-    mh_cov = [_cell(y, "method", "coverage") for y in years]
+    tw_k_r = _priced_series(years_map, years, "two_way", "full_kelly", "realized_log_growth")
+    tw_k_p = _priced_series(years_map, years, "two_way", "full_kelly", "projected_log_growth")
+    mh_k_r = _priced_series(years_map, years, "method", "full_kelly", "realized_log_growth")
+    mh_k_p = _priced_series(years_map, years, "method", "full_kelly", "projected_log_growth")
+    tw_h_r = _priced_series(years_map, years, "two_way", "half_kelly", "realized_log_growth")
+    mh_h_r = _priced_series(years_map, years, "method", "half_kelly", "realized_log_growth")
+    tw_q_r = _priced_series(years_map, years, "two_way", "quarter_kelly", "realized_log_growth")
+    mh_q_r = _priced_series(years_map, years, "method", "quarter_kelly", "realized_log_growth")
+    tw_1_r = _priced_series(years_map, years, "two_way", "flat_1u", "realized_roi")
+    tw_1_p = _priced_series(years_map, years, "two_way", "flat_1u", "projected_roi")
+    mh_1_r = _priced_series(years_map, years, "method", "flat_1u", "realized_roi")
+    mh_1_p = _priced_series(years_map, years, "method", "flat_1u", "projected_roi")
+    tw_cov = _priced_series(years_map, years, "two_way", "coverage")
+    mh_cov = _priced_series(years_map, years, "method", "coverage")
 
     plt = _plt()
     fig, axes = plt.subplots(2, 1, figsize=(10, 7.5), constrained_layout=True, sharex=True)
@@ -169,11 +194,13 @@ def plot_market_book_yoy(
     ax0.plot(years, mh_k_r, "s-", color="#e6550d", label="method Kelly realized", markersize=5)
     ax0.plot(years, tw_h_r, "o--", color="#6baed6", label="two-way half Kelly realized", markersize=4, alpha=0.85)
     ax0.plot(years, mh_h_r, "s--", color="#fd8d3c", label="method half Kelly realized", markersize=4, alpha=0.85)
+    ax0.plot(years, tw_q_r, "o:", color="#08519c", label="two-way quarter Kelly realized", markersize=4, alpha=0.9)
+    ax0.plot(years, mh_q_r, "s:", color="#a63603", label="method quarter Kelly realized", markersize=4, alpha=0.9)
     ax0.axhline(0.0, color="#888", linewidth=0.6)
     ax0.set_ylabel("Log-growth")
-    ax0.legend(loc="best", fontsize=7, ncol=2)
+    ax0.legend(loc="best", fontsize=6, ncol=2)
     ax0.grid(True, alpha=0.3)
-    ax0.set_title("Kelly / half Kelly (coverage annotated on 1u panel)")
+    ax0.set_title("Full / half / quarter Kelly (coverage annotated on 1u panel)")
 
     ax1.plot(years, tw_1_p, "--", color="#9ecae1", label="two-way 1u projected ROI", linewidth=1.5)
     ax1.plot(years, mh_1_p, "--", color="#fdae6b", label="method 1u projected ROI", linewidth=1.5)
@@ -189,7 +216,7 @@ def plot_market_book_yoy(
 
     labels = [f"{y}\n{_pct(tw_cov[i])}/{_pct(mh_cov[i])}" for i, y in enumerate(years)]
     ax1.set_xticks(list(years), labels, fontsize=8)
-    ax1.set_title("Flat 1u ROI; tick labels = year and two-way/method coverage")
+    ax1.set_title("Flat 1u ROI; gaps = no jurek tape that year (not filled)")
 
     fig.suptitle(title, fontsize=11)
     out_path = Path(out_path)
@@ -202,7 +229,7 @@ def plot_market_book_slices(
     report: Mapping[str, Any],
     out_path: Path,
     *,
-    title: str = "Pooled +EV slices (one-way; not crossed)",
+    title: str = "Pooled +EV slices, jurek tape only (one-way; not crossed)",
 ) -> None:
     """
     Three panels of pooled realized vs projected 1u ROI: card slot, gender, weight class.
@@ -247,6 +274,139 @@ def plot_market_book_slices(
     wc_labels = sorted((pooled.get("by_weight_class") or {}).keys())
     _bars(axes[2], wc_labels, "by_weight_class")
     axes[2].set_title("Weight class")
+    fig.suptitle(title, fontsize=11)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_market_book_simul_compare(
+    report: Mapping[str, Any],
+    out_path: Path,
+    *,
+    title: str = "Isolated vs simultaneous Kelly, jurek tape only",
+) -> None:
+    """
+    Realized Kelly log-growth (full and quarter) and 1u ROI on the **jurek** tape.
+    Years with no jurek method are a gap, not an mdabbert splice.
+    """
+    years_map = report.get("years") or {}
+    years = sorted(int(y) for y in years_map.keys())
+    if not years:
+        return
+
+    tw_i = _priced_series(years_map, years, "two_way", "full_kelly", "realized_log_growth")
+    tw_s = _priced_series(years_map, years, "two_way_simul", "full_kelly", "realized_log_growth")
+    mh_i = _priced_series(years_map, years, "method", "full_kelly", "realized_log_growth")
+    mh_s = _priced_series(years_map, years, "method_simul", "full_kelly", "realized_log_growth")
+    tw_qi = _priced_series(years_map, years, "two_way", "quarter_kelly", "realized_log_growth")
+    tw_qs = _priced_series(years_map, years, "two_way_simul", "quarter_kelly", "realized_log_growth")
+    mh_qi = _priced_series(years_map, years, "method", "quarter_kelly", "realized_log_growth")
+    mh_qs = _priced_series(years_map, years, "method_simul", "quarter_kelly", "realized_log_growth")
+    tw_1i = _priced_series(years_map, years, "two_way", "flat_1u", "realized_roi")
+    tw_1s = _priced_series(years_map, years, "two_way_simul", "flat_1u", "realized_roi")
+    mh_1i = _priced_series(years_map, years, "method", "flat_1u", "realized_roi")
+    mh_1s = _priced_series(years_map, years, "method_simul", "flat_1u", "realized_roi")
+    n_multi = _priced_series(years_map, years, "method_simul", "n_multi_leg")
+
+    plt = _plt()
+    fig, axes = plt.subplots(3, 1, figsize=(10, 9.5), constrained_layout=True, sharex=True)
+    ax0, axq, ax1 = axes
+    ax0.plot(years, tw_i, "o--", color="#9ecae1", label="two-way isolated", markersize=4)
+    ax0.plot(years, tw_s, "s-", color="#3182bd", label="two-way simultaneous", markersize=5)
+    ax0.plot(years, mh_i, "o--", color="#fdae6b", label="method isolated", markersize=4)
+    ax0.plot(years, mh_s, "s-", color="#e6550d", label="method simultaneous", markersize=5)
+    ax0.axhline(0.0, color="#888", linewidth=0.6)
+    ax0.set_ylabel("Full Kelly log-growth")
+    ax0.legend(loc="best", fontsize=7, ncol=2)
+    ax0.grid(True, alpha=0.3)
+    ax0.set_title("Full Kelly; two-way isolated and simultaneous should nearly match")
+
+    axq.plot(years, tw_qi, "o--", color="#9ecae1", label="two-way isolated 1/4", markersize=4)
+    axq.plot(years, tw_qs, "s-", color="#3182bd", label="two-way simultaneous 1/4", markersize=5)
+    axq.plot(years, mh_qi, "o--", color="#fdae6b", label="method isolated 1/4", markersize=4)
+    axq.plot(years, mh_qs, "s-", color="#e6550d", label="method simultaneous 1/4", markersize=5)
+    axq.axhline(0.0, color="#888", linewidth=0.6)
+    axq.set_ylabel("Quarter Kelly log-growth")
+    axq.legend(loc="best", fontsize=7, ncol=2)
+    axq.grid(True, alpha=0.3)
+    axq.set_title("Quarter Kelly (same tickets, 0.25 x f*)")
+
+    ax1.plot(years, tw_1i, "o--", color="#9ecae1", label="two-way isolated 1u", markersize=4)
+    ax1.plot(years, tw_1s, "s-", color="#3182bd", label="two-way simultaneous 1u", markersize=5)
+    ax1.plot(years, mh_1i, "o--", color="#fdae6b", label="method isolated 1u", markersize=4)
+    ax1.plot(years, mh_1s, "s-", color="#e6550d", label="method simultaneous 1u", markersize=5)
+    ax1.axhline(0.0, color="#888", linewidth=0.6)
+    ax1.set_xlabel("Calendar year (eval)")
+    ax1.set_ylabel("1u ROI (profit / 100u bank)")
+    ax1.legend(loc="best", fontsize=7, ncol=2)
+    ax1.grid(True, alpha=0.3)
+    labels = [
+        f"{y}\n{int(n_multi[i]) if n_multi[i] == n_multi[i] else 'n/a'} split"
+        for i, y in enumerate(years)
+    ]
+    ax1.set_xticks(list(years), labels, fontsize=8)
+    ax1.set_title("Flat 1u; gaps = no jurek method tape")
+
+    fig.suptitle(title, fontsize=11)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_market_book_fill_tape(
+    report: Mapping[str, Any],
+    out_path: Path,
+    *,
+    title: str = "Mdabbert fill tape (not comparable to jurek YoY)",
+) -> None:
+    """
+    Separate figure for the fill sidecar. Do not overlay on jurek charts.
+    Only years with priced fill fights are drawn.
+    """
+    years_map = report.get("years") or {}
+    years = sorted(int(y) for y in years_map.keys())
+    if not years:
+        return
+    tw_1 = _priced_series(
+        years_map, years, "two_way", "flat_1u", "realized_roi", fill_key="mdabbert_fill"
+    )
+    mh_1 = _priced_series(
+        years_map, years, "method", "flat_1u", "realized_roi", fill_key="mdabbert_fill"
+    )
+    mh_k = _priced_series(
+        years_map, years, "method", "full_kelly", "realized_log_growth", fill_key="mdabbert_fill"
+    )
+    mh_n = _priced_series(years_map, years, "method", "n_priced", fill_key="mdabbert_fill")
+    if all(x != x for x in tw_1 + mh_1):
+        return
+
+    plt = _plt()
+    fig, axes = plt.subplots(2, 1, figsize=(10, 6.5), constrained_layout=True, sharex=True)
+    ax0, ax1 = axes
+    ax0.plot(years, mh_k, "s-", color="#7a0177", label="method Kelly realized", markersize=5)
+    ax0.axhline(0.0, color="#888", linewidth=0.6)
+    ax0.set_ylabel("Method Kelly log-growth")
+    ax0.legend(loc="best", fontsize=8)
+    ax0.grid(True, alpha=0.3)
+    ax0.set_title("Fill tape only; 6-way overround and missing legs differ from jurek")
+
+    ax1.plot(years, tw_1, "o-", color="#3182bd", label="two-way 1u realized", markersize=5)
+    ax1.plot(years, mh_1, "s-", color="#7a0177", label="method 1u realized", markersize=5)
+    ax1.axhline(0.0, color="#888", linewidth=0.6)
+    ax1.set_xlabel("Calendar year (eval)")
+    ax1.set_ylabel("1u ROI")
+    ax1.legend(loc="best", fontsize=8)
+    ax1.grid(True, alpha=0.3)
+    labels = [
+        f"{y}\nn={int(mh_n[i]) if mh_n[i] == mh_n[i] else 0}"
+        for i, y in enumerate(years)
+    ]
+    ax1.set_xticks(list(years), labels, fontsize=8)
+    ax1.set_title("n = mdabbert method fights priced")
+
     fig.suptitle(title, fontsize=11)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

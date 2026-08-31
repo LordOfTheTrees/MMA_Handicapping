@@ -252,7 +252,7 @@ Formally: abstain (do not stake) unless `max_k [ P(k) × decimal_odds(k) ] > 1 +
 
 **Consequences.**
 
-- Abstention cannot be evaluated or tuned until a reproducible source of historical betting lines (opening, closing, or pre-bell) is available at the fight level. See `TODO.md` §P&L and ADR-20 "Deferred" for scope notes. A **post-hoc** verification book on OOS `P` (every posted `e > 0`; full/half Kelly and 1u) is `python -m src.eval.market_book` — still not a model layer, still not folded into `score_tier1_fight_slice`. ADR-21 `min_edge` is **not** searched.
+- Abstention cannot be evaluated or tuned until a reproducible source of historical betting lines (opening, closing, or pre-bell) is available at the fight level. See `TODO.md` §P&L and ADR-20 "Deferred" for scope notes. A **post-hoc** verification book on OOS `P` (every posted `e > 0`; full/half/quarter Kelly and 1u) is `python -m src.eval.market_book` — still not a model layer, still not folded into `score_tier1_fight_slice`. ADR-21 `min_edge` is **not** searched.
 - The stake filter is **not** trained jointly with the regression model. It is applied post-hoc to model outputs. Training them jointly would reintroduce the cherry-picking bias.
 - **Do not add a confidence threshold to `predict` or `score_tier1_fight_slice`.** Those are model-evaluation surfaces that must score every fight to be honest. A fight the model is uncertain about is still a real fight; excluding it from metrics is dishonest.
 - When lines data exists, evaluate abstention on **ROI over all fights** (not accuracy on chosen fights): if the filter skips 40% of cards and the retained set shows positive P&L over a large sample, that is meaningful. If the retained set merely shows higher classification accuracy, it is not.
@@ -460,7 +460,8 @@ closing line may still be reported as a secondary diagnostic, but it is not the 
   static base rates**. Recorded as a baseline observation, not as a claim about where a market edge
   will or will not be found.
 - **Open dependency: fight-level historical prices.** A first local join now exists
-  (`python -m src.eval.market_book`; jurek + mdabbert fill; posted decimals, not a clean open).
+  (`python -m src.eval.market_book`; jurek primary tape + mdabbert fill as a **separate**
+  rollup, never spliced onto YoY; posted decimals, not a clean open).
   ADR-27’s success criterion (opening lines, de-vigged *q*, expected Kelly growth on the
   pristine holdout) is **not** what that first book measured. Coverage and which timestamp
   the dump represents remain survey items. First-book result and betting-layer maps: **ADR-28**.
@@ -544,6 +545,9 @@ does not remove max-edge bias). Full Kelly on the same point `P`. Putting lines 
   sum to 1 must not overwrite those surfaces.
 - Next book experiment should report **hit rate vs posted implied** on the staked set
   (the first book’s smoking gun), not only projected vs realized wealth.
+- **Do not splice odds tapes on one series.** Jurek is the primary YoY/slices/simul tape.
+  Mdabbert fill is a nested rollup and its own figure. A year with no jurek 6-way is a
+  gap, not a silent substitute.
 - Choosing among the options above on the same 2013–2025 realized path that suggested
   them is selection bias; freeze a map, then grade a later window (or a pre-registered
   slice such as titles-only).

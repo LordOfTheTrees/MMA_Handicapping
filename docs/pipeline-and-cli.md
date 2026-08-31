@@ -126,7 +126,7 @@ Implementations live under [`src/cli/`](../src/cli/). From the repo root, run wi
 
 ### 4.1 Market book (local odds verification)
 
-Post-hoc expanding walk-forward: frozen `Config()` (2022 Phase-3 winner), refit **W** on `fight_date < Y-01-01`, attach posted lines, stake **every +EV** listed market (`e = P*d - 1 > 0`; no extra `min_edge`). Full Kelly, half Kelly, and 1 unit. Two-way and six-class method books are separate. **Local only** — not wired into weekly/monthly CI or `mma.ai`.
+Post-hoc expanding walk-forward: frozen `Config()` (2022 Phase-3 winner), refit **W** on `fight_date < Y-01-01`, attach posted lines, stake **every +EV** listed market (`e = P*d - 1 > 0`; no extra `min_edge`). Full / half / quarter Kelly and 1 unit. Two-way and six-class method books are separate. **Local only** — not wired into weekly/monthly CI or `mma.ai`.
 
 ```bash
 python -m src.eval.market_book --data-dir ./data --out-dir ./data/market_eval --start-year 2013 --end-year 2025
@@ -137,13 +137,13 @@ Sidecars (gitignored; do not redistribute BestFightOdds dumps):
 - `data/Public datasets/Kaggle/jurek betting odds/UFC_betting_odds.csv`
 - `data/Public datasets/Kaggle/mdabbert ultimate/ufc-master.csv`
 
-Outputs: `data/market_eval/market_book.json` (per-year overall plus **one-way** slices, and `slices_pooled` across years), `market_book_yoy.png`, and `market_book_slices.png`. Slices are **not crossed** (no title×women×flyweight):
+Outputs: `data/market_eval/market_book.json` (per-year **jurek** rollup plus **one-way** slices, `slices_pooled`, and a nested `mdabbert_fill` rollup), `market_book_yoy.png`, `market_book_slices.png`, `market_book_simul.png` (all **jurek tape only**), and `market_book_mdabbert_fill.png` (fill tape on its own figure). **Do not splice the two tapes onto one series:** a jurek fight_id match wins even if method columns are empty; years with no jurek 6-way are a gap, not an mdabbert substitute. Slices are **not crossed** (no title×women×flyweight):
 
 - **Card slot** (overlapping): `title`, `main_event`, `main_card`, `prelim_main_event`, `generic_prelims`. Billed order from mdabbert (main-first); main card = first 5; featured prelim = index 5; later = generic prelims. Title = mdabbert `title_bout` or `weight_class_raw` containing “title”. Dates with 16+ fights skip position tags (doubleheader).
 - **Gender:** men / women from `WeightClass`; catch/unknown = `other`.
 - **Weight class:** `FightRecord.weight_class` only.
 
-One regression fit per year; ELO cache default `<out-dir>/elo_walkforward_cache.pkl` (`--elo-cache` to override). Does **not** change `train` / `eval-holdout` / Phase 3. ADR-21 `min_edge` is **not** searched. Display/training softmax stays a 100% stack; contract-level maps that leave it are **ADR-28** (not implemented in this CLI).
+One regression fit per year; ELO cache default `<out-dir>/elo_walkforward_cache.pkl` (`--elo-cache` to override). Does **not** change `train` / `eval-holdout` / Phase 3. ADR-21 `min_edge` is **not** searched. Display/training softmax stays a 100% stack; contract-level maps that leave it are **ADR-28**. This CLI also writes a **simultaneous Kelly** comparison (`two_way_simul` / `method_simul`, `market_book_simul.png`) on the same listed mutex contracts; it does not replace the max-edge baseline.
 
 ---
 

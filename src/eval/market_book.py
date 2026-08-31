@@ -6,9 +6,12 @@ Uses production ``Config()`` (frozen 2022 Phase-3 winner) and refits **weights W
 only — no ``--selection-search`` / random walks.
 
 Stake rules (fixed in advance): among listed contracts on a fight, stake the
-single +EV market with the largest edge ``e = P*d - 1``. Three parallel books:
-full Kelly, half Kelly, and 1 unit flat. Two-way (A vs B) and six-class method
-props are **separate** books (no parlays).
+single +EV market with the largest edge ``e = P*d - 1``. Parallel books:
+full / half / quarter Kelly and 1 unit flat. Two-way (A vs B) and six-class
+method props are **separate** books (no parlays). Comparison map (ADR-28): a
+**simultaneous** Kelly vector on the same listed mutex contracts (backing only)
+is stored as ``two_way_simul`` / ``method_simul``; it does not replace the
+max-edge baseline.
 
 Local only — not a GitHub Action; do not write ``JSON_exports/`` (mma.ai sync
 globs every ``*.json`` there).
@@ -23,9 +26,11 @@ Sidecars (gitignored, not redistributed)::
     data/Public datasets/Kaggle/jurek betting odds/UFC_betting_odds.csv
     data/Public datasets/Kaggle/mdabbert ultimate/ufc-master.csv
 
-Outputs ``market_book.json``, ``market_book_yoy.png``, and ``market_book_slices.png``
-under ``--out-dir``. Slices (one-way only, not crossed): card slot, gender, weight
-class. Card slots use mdabbert billed order with a fixed 5-fight main card.
+Outputs ``market_book.json``, ``market_book_yoy.png``, ``market_book_slices.png``,
+``market_book_simul.png``, and ``market_book_mdabbert_fill.png`` under ``--out-dir``.
+YoY / slices / simul figures are the **jurek tape only**; mdabbert fill is never
+spliced onto those series. Slices (one-way only, not crossed): card slot, gender,
+weight class. Card slots use mdabbert billed order with a fixed 5-fight main card.
 """
 from __future__ import annotations
 
@@ -56,9 +61,16 @@ JSON_EXPORTS_DIR = (REPO_ROOT / "JSON_exports").resolve()
 
 _WIN = frozenset({0, 1, 2})
 _KELLY_F_MAX = 1.0 - 1e-12
+_KELLY_SCALES: Tuple[Tuple[str, float], ...] = (
+    ("full_kelly", 1.0),
+    ("half_kelly", 0.5),
+    ("quarter_kelly", 0.25),
+)
 _START_UNITS_1U = 100.0
 _DEFAULT_JUREK = Path("Public datasets") / "Kaggle" / "jurek betting odds" / "UFC_betting_odds.csv"
 _DEFAULT_MDABBERT = Path("Public datasets") / "Kaggle" / "mdabbert ultimate" / "ufc-master.csv"
+# YoY / slices / simul figures use this tape only. Fill is a separate rollup, never spliced.
+PRIMARY_ODDS_SOURCE = "jurek"
 
 # Pre-registered card layout (not searched). mdabbert lists fights billed/main-first.
 # Index 0 = billed headliner; first MAIN_CARD_SIZE rows = main card; index MAIN_CARD_SIZE
@@ -174,6 +186,64 @@ def implied_log_growth(p: float, f: float, decimal_odds: float) -> float:
     p = min(max(float(p), 1e-15), 1.0 - 1e-15)
     f = min(max(float(f), 0.0), _KELLY_F_MAX)
     return p * math.log(1.0 + f * b) + (1.0 - p) * math.log(1.0 - f)
+
+
+def simultaneous_kelly_fractions(
+    ps: Sequence[float],
+    decimals: Sequence[float],
+) -> List[float]:
+    """
+    Backing-only Kelly fractions on mutually exclusive outcomes (horse-race form).
+
+    Rank by ``p/q``, grow a prefix ``O`` while ``Q_O < 1`` and every
+    ``f_i = p_i - q_i (1-P_O)/(1-Q_O)`` stays positive. Unlisted / non-positive
+    prices get 0. One +EV outcome reduces to isolated ``e/(d-1)``.
+    """
+    n = len(ps)
+    if n == 0:
+        return []
+    if n != len(decimals):
+        raise ValueError("ps and decimals must be the same length")
+    ranked: List[Tuple[int, float, float]] = []
+    for i, (p_raw, d_raw) in enumerate(zip(ps, decimals)):
+        try:
+            p_f = float(p_raw)
+            d_f = float(d_raw)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(p_f) or not math.isfinite(d_f) or d_f <= 1.0 or p_f <= 0.0:
+            continue
+        ranked.append((i, p_f, 1.0 / d_f))
+    ranked.sort(key=lambda t: t[1] / t[2], reverse=True)
+    best: List[Tuple[int, float]] = []
+    for m in range(1, len(ranked) + 1):
+        group = ranked[:m]
+        p_o = sum(t[1] for t in group)
+        q_o = sum(t[2] for t in group)
+        if q_o >= 1.0 - 1e-12:
+            break
+        mu = (1.0 - p_o) / (1.0 - q_o)
+        if mu < 0.0:
+            break
+        fs_m: List[Tuple[int, float]] = []
+        ok = True
+        for i, p_f, q in group:
+            fi = p_f - q * mu
+            if fi <= 1e-15:
+                ok = False
+                break
+            fs_m.append((i, fi))
+        if not ok:
+            break
+        best = fs_m
+    f_sum = sum(f for _, f in best)
+    if f_sum >= _KELLY_F_MAX and f_sum > 0.0:
+        scale = _KELLY_F_MAX / f_sum
+        best = [(i, f * scale) for i, f in best]
+    out = [0.0] * n
+    for i, f in best:
+        out[i] = float(f)
+    return out
 
 
 def realized_multiplier(hit: bool, f: float, decimal_odds: float) -> float:
@@ -402,7 +472,9 @@ def join_posted_lines(
 ) -> Tuple[Dict[str, PostedLines], Dict[str, int]]:
     """
     One source per fight: jurek ``fight_id`` first, mdabbert name+date fill.
-    Do not blend columns across sources.
+Do not blend columns across sources. A jurek match with empty method
+columns is still jurek (no mdabbert method splice). YoY figures use
+jurek only; mdabbert fill is a separate rollup.
     """
     jurek = load_jurek_by_fight_id(jurek_path) if jurek_path.is_file() else {}
     md_rows = load_mdabbert_rows(mdabbert_path) if mdabbert_path.is_file() else []
@@ -572,6 +644,22 @@ class StakePick:
     hit: bool
 
 
+@dataclass(frozen=True)
+class SimulLeg:
+    contract: str
+    p: float
+    decimal_odds: float
+    f: float
+    hit: bool
+
+
+@dataclass(frozen=True)
+class SimulFight:
+    """One fight's simultaneous Kelly allocation (backing only; nonempty legs)."""
+
+    legs: Tuple[SimulLeg, ...]
+
+
 def pick_max_edge(
     probs_and_odds: Sequence[Tuple[str, float, float]],
     hit_of: Mapping[str, bool],
@@ -613,8 +701,89 @@ def fill_method_hits(y: int) -> Dict[str, bool]:
     return {lab: (i == y) for i, lab in enumerate(labels)}
 
 
+def simul_fight_from_candidates(
+    probs_and_odds: Sequence[Tuple[str, float, float]],
+    hit_of: Mapping[str, bool],
+) -> Optional[SimulFight]:
+    """Simultaneous Kelly on listed contracts. ``None`` if the optimal set is empty."""
+    if not probs_and_odds:
+        return None
+    names = [str(n) for n, _, _ in probs_and_odds]
+    ps = [float(p) for _, p, _ in probs_and_odds]
+    ds = [float(d) for _, _, d in probs_and_odds]
+    fs = simultaneous_kelly_fractions(ps, ds)
+    legs: List[SimulLeg] = []
+    for name, p, d, f in zip(names, ps, ds, fs):
+        if f <= 0.0:
+            continue
+        legs.append(
+            SimulLeg(
+                contract=name,
+                p=p,
+                decimal_odds=d,
+                f=f,
+                hit=bool(hit_of[name]),
+            )
+        )
+    if not legs:
+        return None
+    return SimulFight(legs=tuple(legs))
+
+
+def _scale_simul_fs(fight: SimulFight, fraction_scale: float) -> List[float]:
+    fs = [min(lg.f * fraction_scale, _KELLY_F_MAX) for lg in fight.legs]
+    f_sum = sum(fs)
+    if f_sum >= _KELLY_F_MAX and f_sum > 0.0:
+        scale = _KELLY_F_MAX / f_sum
+        fs = [x * scale for x in fs]
+    return fs
+
+
+def implied_log_growth_simul(fight: SimulFight, fraction_scale: float) -> float:
+    """Ex-ante log-growth if model ``P`` is true and mutex tickets share one wallet."""
+    fs = _scale_simul_fs(fight, fraction_scale)
+    f_sum = sum(fs)
+    if f_sum <= 0.0:
+        return 0.0
+    cash = max(1.0 - f_sum, 1e-15)
+    p_o = sum(lg.p for lg in fight.legs)
+    g = (1.0 - min(max(p_o, 0.0), 1.0)) * math.log(cash)
+    for lg, f in zip(fight.legs, fs):
+        m = max(cash + f * lg.decimal_odds, 1e-15)
+        g += lg.p * math.log(m)
+    return g
+
+
+def realized_multiplier_simul(fight: SimulFight, fraction_scale: float) -> float:
+    fs = _scale_simul_fs(fight, fraction_scale)
+    f_sum = sum(fs)
+    cash = max(1.0 - f_sum, 1e-15)
+    for lg, f in zip(fight.legs, fs):
+        if lg.hit:
+            return max(cash + f * lg.decimal_odds, 1e-15)
+    return cash
+
+
+def realized_flat_pnl_simul(fight: SimulFight) -> float:
+    """One unit total, split across legs in proportion to full-Kelly ``f``."""
+    f_sum = sum(lg.f for lg in fight.legs)
+    if f_sum <= 0.0:
+        return 0.0
+    for lg in fight.legs:
+        if lg.hit:
+            return (lg.f / f_sum) * lg.decimal_odds - 1.0
+    return -1.0
+
+
+def projected_flat_pnl_simul(fight: SimulFight) -> float:
+    f_sum = sum(lg.f for lg in fight.legs)
+    if f_sum <= 0.0:
+        return 0.0
+    return sum(lg.p * (lg.f / f_sum) * lg.decimal_odds for lg in fight.legs) - 1.0
+
+
 def _kelly_path(picks: Sequence[StakePick], fraction_scale: float) -> Dict[str, Any]:
-    """fraction_scale 1.0 = full Kelly, 0.5 = half. Wealth starts at 1."""
+    """``fraction_scale`` 1.0 = full Kelly, 0.5 = half, 0.25 = quarter. Wealth starts at 1."""
     wealth = 1.0
     peak = 1.0
     max_dd = 0.0
@@ -723,9 +892,128 @@ def rollup_picks(picks: Sequence[StakePick], n_priced: int) -> Dict[str, Any]:
         "mean_edge": mean_e,
         "hit_rate": hit_rate,
         "mean_posted_implied": mean_implied,
-        "full_kelly": _kelly_path(picks, 1.0),
-        "half_kelly": _kelly_path(picks, 0.5),
+        **{name: _kelly_path(picks, scale) for name, scale in _KELLY_SCALES},
         "flat_1u": _flat_1u_path(picks),
+    }
+
+
+def _kelly_path_simul(fights: Sequence[SimulFight], fraction_scale: float) -> Dict[str, Any]:
+    wealth = 1.0
+    peak = 1.0
+    max_dd = 0.0
+    ruin_zero = False
+    ruin_50 = False
+    log_proj = 0.0
+    log_real = 0.0
+    log_rets: List[float] = []
+    totals: List[float] = []
+    for fight in fights:
+        fs = _scale_simul_fs(fight, fraction_scale)
+        totals.append(sum(fs))
+        log_proj += implied_log_growth_simul(fight, fraction_scale)
+        m = max(realized_multiplier_simul(fight, fraction_scale), 1e-15)
+        log_r = math.log(m)
+        log_real += log_r
+        log_rets.append(log_r)
+        wealth *= m
+        if wealth > peak:
+            peak = wealth
+        dd = 1.0 - wealth / peak if peak > 0 else 1.0
+        if dd > max_dd:
+            max_dd = dd
+        if wealth <= 1e-12:
+            ruin_zero = True
+        if dd >= 0.5:
+            ruin_50 = True
+    mu = float(np.mean(log_rets)) if log_rets else 0.0
+    var = float(np.var(log_rets)) if len(log_rets) > 1 else 0.0
+    if not log_rets:
+        approx = float("nan")
+    elif var <= 0.0:
+        approx = 0.0 if mu > 0.0 else 1.0
+    elif mu <= 0.0:
+        approx = 1.0
+    else:
+        approx = float(min(1.0, math.exp(-2.0 * mu * math.log(2.0) / var)))
+    return {
+        "n_bets": len(fights),
+        "mean_f": float(np.mean(totals)) if totals else float("nan"),
+        "projected_log_growth": log_proj,
+        "realized_log_growth": log_real,
+        "projected_wealth": math.exp(log_proj) if fights else 1.0,
+        "realized_wealth": wealth if fights else 1.0,
+        "max_drawdown": max_dd,
+        "ruin_zero": ruin_zero,
+        "ruin_50pct_drawdown": ruin_50,
+        "approx_ruin_50pct_brownian": approx,
+    }
+
+
+def _flat_1u_path_simul(fights: Sequence[SimulFight]) -> Dict[str, Any]:
+    bank = _START_UNITS_1U
+    peak = bank
+    max_dd_units = 0.0
+    projected = 0.0
+    realized = 0.0
+    bust = False
+    down_50 = False
+    for fight in fights:
+        projected += projected_flat_pnl_simul(fight)
+        pnl = realized_flat_pnl_simul(fight)
+        realized += pnl
+        bank += pnl
+        if bank > peak:
+            peak = bank
+        dd = peak - bank
+        if dd > max_dd_units:
+            max_dd_units = dd
+        if bank <= 0.0:
+            bust = True
+        if bank <= _START_UNITS_1U - 50.0:
+            down_50 = True
+    n = len(fights)
+    return {
+        "n_bets": n,
+        "start_units": _START_UNITS_1U,
+        "projected_profit_units": projected,
+        "realized_profit_units": realized,
+        "terminal_units": bank,
+        "projected_roi": projected / _START_UNITS_1U,
+        "realized_roi": realized / _START_UNITS_1U,
+        "max_drawdown_units": max_dd_units,
+        "bust": bust,
+        "down_50_units": down_50,
+    }
+
+
+def rollup_simul(fights: Sequence[SimulFight], n_priced: int) -> Dict[str, Any]:
+    n_plus = len(fights)
+    n_legs = [len(f.legs) for f in fights]
+    n_multi = sum(1 for n in n_legs if n > 1)
+    hits = sum(1 for f in fights if any(lg.hit for lg in f.legs))
+    totals = [sum(lg.f for lg in f.legs) for f in fights]
+    w_imp: List[float] = []
+    w_e: List[float] = []
+    for f in fights:
+        f_sum = sum(lg.f for lg in f.legs)
+        if f_sum <= 0.0:
+            continue
+        for lg in f.legs:
+            w = lg.f / f_sum
+            w_imp.append(w / lg.decimal_odds)
+            w_e.append(w * edge(lg.p, lg.decimal_odds))
+    return {
+        "n_priced": n_priced,
+        "n_plus_ev": n_plus,
+        "coverage": (n_plus / n_priced) if n_priced else float("nan"),
+        "n_multi_leg": n_multi,
+        "mean_n_legs": float(np.mean(n_legs)) if n_legs else float("nan"),
+        "mean_f": float(np.mean(totals)) if totals else float("nan"),
+        "mean_edge": float(np.mean(w_e)) if w_e else float("nan"),
+        "hit_rate": (hits / n_plus) if n_plus else float("nan"),
+        "mean_posted_implied": float(np.mean(w_imp)) if w_imp else float("nan"),
+        **{name: _kelly_path_simul(fights, scale) for name, scale in _KELLY_SCALES},
+        "flat_1u": _flat_1u_path_simul(fights),
     }
 
 
@@ -749,17 +1037,27 @@ def _extend_bucket(dst: _Bucket, src: _Bucket) -> None:
 
 
 class BookAccum:
-    """One-way slice buckets (not crossed). Overall + card + gender + weight class."""
+    """Jurek tape (primary YoY/slices) plus a separate mdabbert-fill rollup."""
 
     def __init__(self) -> None:
         self.two_way = _Bucket()
         self.method = _Bucket()
+        self.two_way_simul: List[SimulFight] = []
+        self.method_simul: List[SimulFight] = []
+        self.n_two_way_priced = 0
+        self.n_method_priced = 0
         self.tw_card: Dict[str, _Bucket] = {s: _Bucket() for s in CARD_SLOTS}
         self.mh_card: Dict[str, _Bucket] = {s: _Bucket() for s in CARD_SLOTS}
         self.tw_gender: Dict[str, _Bucket] = {g: _Bucket() for g in GENDERS}
         self.mh_gender: Dict[str, _Bucket] = {g: _Bucket() for g in GENDERS}
         self.tw_wc: Dict[str, _Bucket] = defaultdict(_Bucket)
         self.mh_wc: Dict[str, _Bucket] = defaultdict(_Bucket)
+        self.md_two_way = _Bucket()
+        self.md_method = _Bucket()
+        self.md_two_way_simul: List[SimulFight] = []
+        self.md_method_simul: List[SimulFight] = []
+        self.md_n_two_way_priced = 0
+        self.md_n_method_priced = 0
 
     def add_fight(
         self,
@@ -768,9 +1066,32 @@ class BookAccum:
         tw_priced: bool,
         meth_pick: Optional[StakePick],
         meth_priced: bool,
+        tw_simul: Optional[SimulFight] = None,
+        meth_simul: Optional[SimulFight] = None,
+        source: str = PRIMARY_ODDS_SOURCE,
     ) -> None:
+        if source != PRIMARY_ODDS_SOURCE:
+            self.md_two_way.add(tw_pick, tw_priced)
+            self.md_method.add(meth_pick, meth_priced)
+            if tw_priced:
+                self.md_n_two_way_priced += 1
+            if meth_priced:
+                self.md_n_method_priced += 1
+            if tw_simul is not None:
+                self.md_two_way_simul.append(tw_simul)
+            if meth_simul is not None:
+                self.md_method_simul.append(meth_simul)
+            return
         self.two_way.add(tw_pick, tw_priced)
         self.method.add(meth_pick, meth_priced)
+        if tw_priced:
+            self.n_two_way_priced += 1
+        if meth_priced:
+            self.n_method_priced += 1
+        if tw_simul is not None:
+            self.two_way_simul.append(tw_simul)
+        if meth_simul is not None:
+            self.method_simul.append(meth_simul)
         self.tw_gender[tags.gender].add(tw_pick, tw_priced)
         self.mh_gender[tags.gender].add(meth_pick, meth_priced)
         self.tw_wc[tags.weight_class].add(tw_pick, tw_priced)
@@ -782,6 +1103,16 @@ class BookAccum:
     def merge(self, other: "BookAccum") -> None:
         _extend_bucket(self.two_way, other.two_way)
         _extend_bucket(self.method, other.method)
+        self.two_way_simul.extend(other.two_way_simul)
+        self.method_simul.extend(other.method_simul)
+        self.n_two_way_priced += other.n_two_way_priced
+        self.n_method_priced += other.n_method_priced
+        _extend_bucket(self.md_two_way, other.md_two_way)
+        _extend_bucket(self.md_method, other.md_method)
+        self.md_two_way_simul.extend(other.md_two_way_simul)
+        self.md_method_simul.extend(other.md_method_simul)
+        self.md_n_two_way_priced += other.md_n_two_way_priced
+        self.md_n_method_priced += other.md_n_method_priced
         for s in CARD_SLOTS:
             _extend_bucket(self.tw_card[s], other.tw_card[s])
             _extend_bucket(self.mh_card[s], other.mh_card[s])
@@ -795,8 +1126,18 @@ class BookAccum:
 
     def as_report(self) -> Dict[str, Any]:
         return {
+            "odds_tape": PRIMARY_ODDS_SOURCE,
             "two_way": rollup_picks(self.two_way.picks, self.two_way.n_priced),
             "method": rollup_picks(self.method.picks, self.method.n_priced),
+            "two_way_simul": rollup_simul(self.two_way_simul, self.n_two_way_priced),
+            "method_simul": rollup_simul(self.method_simul, self.n_method_priced),
+            "mdabbert_fill": {
+                "odds_tape": "mdabbert",
+                "two_way": rollup_picks(self.md_two_way.picks, self.md_two_way.n_priced),
+                "method": rollup_picks(self.md_method.picks, self.md_method.n_priced),
+                "two_way_simul": rollup_simul(self.md_two_way_simul, self.md_n_two_way_priced),
+                "method_simul": rollup_simul(self.md_method_simul, self.md_n_method_priced),
+            },
             "by_card": {
                 s: {
                     "two_way": rollup_picks(self.tw_card[s].picks, self.tw_card[s].n_priced),
@@ -847,6 +1188,8 @@ def book_year(
         tw_priced = False
         meth_pick: Optional[StakePick] = None
         meth_priced = False
+        tw_simul: Optional[SimulFight] = None
+        meth_simul: Optional[SimulFight] = None
         if lines.has_two_way() and lines.d_a is not None and lines.d_b is not None:
             tw_priced = True
             cands = [
@@ -854,15 +1197,21 @@ def book_year(
                 ("B", float(p6[3] + p6[4] + p6[5]), float(lines.d_b)),
             ]
             tw_pick = pick_max_edge(cands, fill_two_way_hits(y))
+            tw_simul = simul_fight_from_candidates(cands, fill_two_way_hits(y))
         if lines.has_method():
             meth_priced = True
-            meth_pick = pick_max_edge(method_candidates(p6, lines), fill_method_hits(y))
+            meth_cands = method_candidates(p6, lines)
+            meth_pick = pick_max_edge(meth_cands, fill_method_hits(y))
+            meth_simul = simul_fight_from_candidates(meth_cands, fill_method_hits(y))
         acc.add_fight(
             tag_map.get(fight.fight_id, _DEFAULT_TAGS),
             tw_pick,
             tw_priced,
             meth_pick,
             meth_priced,
+            tw_simul,
+            meth_simul,
+            source=lines.source,
         )
     return acc
 
@@ -934,9 +1283,13 @@ def run_market_book(
         years_out[str(y)] = year_acc.as_report()
         tw = years_out[str(y)]["two_way"]
         mh = years_out[str(y)]["method"]
+        mhs = years_out[str(y)]["method_simul"]
+        fill = years_out[str(y)]["mdabbert_fill"]
         print(
-            f"  two_way n_priced={tw['n_priced']} n_plus_ev={tw['n_plus_ev']}  "
-            f"method n_priced={mh['n_priced']} n_plus_ev={mh['n_plus_ev']}",
+            f"  jurek two_way n_priced={tw['n_priced']} n+={tw['n_plus_ev']}  "
+            f"jurek method n_priced={mh['n_priced']} n+={mh['n_plus_ev']}  "
+            f"method_simul n+={mhs['n_plus_ev']} n_multi={mhs['n_multi_leg']}  "
+            f"mdabbert_fill method n_priced={fill['method']['n_priced']} n+={fill['method']['n_plus_ev']}",
             flush=True,
         )
 
@@ -945,7 +1298,13 @@ def run_market_book(
         "start_year": int(start_year),
         "end_year": int(end_year),
         "config": "Config() frozen 2022 Phase-3 winner; skip_bootstrap=True",
-        "stake_rules": ["full_kelly", "half_kelly", "flat_1u"],
+        "stake_rules": ["full_kelly", "half_kelly", "quarter_kelly", "flat_1u"],
+        "stake_maps": {
+            "two_way": "isolated max-edge (baseline)",
+            "method": "isolated max-edge (baseline)",
+            "two_way_simul": "simultaneous Kelly on listed mutex contracts (backing only)",
+            "method_simul": "simultaneous Kelly on listed mutex contracts (backing only)",
+        },
         "slice_rules": {
             "card": (
                 "mdabbert billed order (main-first); "
@@ -958,6 +1317,15 @@ def run_market_book(
             "weight_class": "FightRecord.weight_class; one-way only",
         },
         "join": join_stats,
+        "odds_tapes": {
+            "primary": PRIMARY_ODDS_SOURCE,
+            "fill": "mdabbert",
+            "rule": (
+                "One source per fight; jurek fight_id wins even if method columns are empty. "
+                "YoY, slices, and simul figures use the jurek tape only. "
+                "mdabbert fill is a separate rollup and is never spliced onto those series."
+            ),
+        },
         "sidecars": {"jurek": str(jurek_path), "mdabbert": str(mdabbert_path)},
         "years": years_out,
         "slices_pooled": pooled.as_report(),
@@ -966,13 +1334,24 @@ def run_market_book(
     json_path.write_text(json.dumps(report, indent=2, default=_json_default) + "\n", encoding="utf-8")
     print(f"[market_book] wrote {json_path}", flush=True)
     png_path = out_dir / "market_book_yoy.png"
-    from .tuning_plots import plot_market_book_slices, plot_market_book_yoy
+    from .tuning_plots import (
+        plot_market_book_fill_tape,
+        plot_market_book_slices,
+        plot_market_book_simul_compare,
+        plot_market_book_yoy,
+    )
 
     plot_market_book_yoy(report, png_path)
     print(f"[market_book] wrote {png_path}", flush=True)
     slices_png = out_dir / "market_book_slices.png"
     plot_market_book_slices(report, slices_png)
     print(f"[market_book] wrote {slices_png}", flush=True)
+    simul_png = out_dir / "market_book_simul.png"
+    plot_market_book_simul_compare(report, simul_png)
+    print(f"[market_book] wrote {simul_png}", flush=True)
+    fill_png = out_dir / "market_book_mdabbert_fill.png"
+    plot_market_book_fill_tape(report, fill_png)
+    print(f"[market_book] wrote {fill_png}", flush=True)
     return report
 
 
@@ -990,7 +1369,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     p = argparse.ArgumentParser(
         description=(
             "Walk-forward +EV book on OOS Config() P vs posted two-way and method odds. "
-            "Local only; odds never train. Stakes: full Kelly, half Kelly, 1 unit on every +EV pick."
+            "Local only; odds never train. Stakes: full/half/quarter Kelly and 1 unit on every +EV pick."
         )
     )
     p.add_argument("--data-dir", type=Path, default=Path("data"), help="CSV data directory")
