@@ -80,7 +80,7 @@ def print_harness_integration_preamble(*, module: str, description: str) -> None
         " These tests need a trained MMAPredictor pickle (same kind as:",
         '   python main.py --model-path ./data/model.pkl predict ...)',
         "",
-        f" Resolution order:",
+        " Resolution order:",
         f"   1. Environment variable {_ENV_VAR} (optional override)",
         f"   2. Default repo path   {_display_path(_DEFAULT_DATA_PKL)}",
         "",
@@ -103,7 +103,7 @@ def print_harness_integration_preamble(*, module: str, description: str) -> None
 
     resolved = harness_model_path()
     if resolved is not None:
-        lines.append(f" RESULT: INTEGRATION TESTS IN THIS FILE WILL RUN")
+        lines.append(" RESULT: INTEGRATION TESTS IN THIS FILE WILL RUN")
         lines.append(f" Using pickle: {_display_path(resolved)}")
         lines.append("")
         lines.append(" Contract: export uses as_of_date = last fight date in the model (or today if no fights).")

@@ -31,8 +31,7 @@ from .data.loader import (
     load_sherdog_fights, load_ufcstats_fights, sort_fights_chronologically,
 )
 from .data.schema import (
-    FightRecord, FighterProfile, MatchupFeatures,
-    PredictionResult, StyleAxes, WeightClass,
+    FightRecord, FighterProfile, PredictionResult, StyleAxes, WeightClass,
 )
 from .elo.elo import ELOModel
 from .features.construction import apply_cold_start_prior, compute_style_axes
@@ -45,7 +44,6 @@ from .matchup.interactions import (
 from .model.regression import (
     CLASS_LABELS,
     MultinomialLogisticModel,
-    N_CLASSES,
     encode_outcome,
     format_coefficient_importance_report,
 )
@@ -478,6 +476,9 @@ class MMAPredictor:
             l2_lambda=self.config.model.l2_lambda,
         )
         m = self.config.model
+        # strict=True: these are the coefficients that get exported and served. The monthly
+        # retrain runs unattended, so a non-converged optimisation has to stop the pipeline
+        # rather than print a warning nobody reads.
         self.regression.fit(
             self._X_train,
             self._y_train,
@@ -485,6 +486,7 @@ class MMAPredictor:
             max_iter=m.lbfgs_max_iter,
             ftol=m.lbfgs_ftol,
             gtol=m.lbfgs_gtol,
+            strict=True,
         )
 
         if self.regression.W is not None:
@@ -495,6 +497,12 @@ class MMAPredictor:
                 self._X_train,
             )
             print(rep_text, flush=True)
+            audit["convergence"] = {
+                "converged": self.regression.converged,
+                "n_iter": self.regression.n_iter,
+                "final_loss": self.regression.final_loss,
+                "message": self.regression.convergence_message,
+            }
             self.training_regression_audit = audit
 
         eff_n = effective_sample_size(self._train_weights)

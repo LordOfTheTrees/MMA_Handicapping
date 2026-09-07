@@ -4,7 +4,7 @@ Canonical in-memory data schemas for fights, fighters, and derived states.
 All pipeline stages pass these dataclasses across their boundaries.
 No external dependencies — pure Python stdlib.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 from typing import Optional

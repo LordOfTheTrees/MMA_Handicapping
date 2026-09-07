@@ -1,0 +1,1975 @@
+{
+  "fixture_version": 1,
+  "generated_by": "MMA_Handicapping/scripts/export_parity_vectors.py",
+  "note": "Golden vectors from the training implementation. Regenerate only when feature semantics change on purpose; a diff here means training and serving disagree.",
+  "feature_names": [
+    "elo_differential",
+    "striker_score_diff",
+    "grappler_score_diff",
+    "finish_threat_diff",
+    "finish_vulnerability_diff",
+    "striking_matchup",
+    "grappling_matchup",
+    "finish_matchup",
+    "reach_diff_cm",
+    "height_diff_cm",
+    "stance_mismatch",
+    "age_diff_days"
+  ],
+  "class_labels": [
+    "Win by KO/TKO",
+    "Win by Submission",
+    "Win by Decision",
+    "Lose by Decision",
+    "Lose by KO/TKO",
+    "Lose by Submission"
+  ],
+  "frozen_W": [
+    [
+      0.00616239,
+      -0.00753662,
+      -0.02476746,
+      -0.00925183,
+      0.00083098,
+      -0.00068921,
+      0.00310281,
+      9.95e-06,
+      -0.00633921,
+      -0.00107872,
+      -0.00963825,
+      0.00484257
+    ],
+    [
+      0.00056926,
+      -0.00785651,
+      0.001412,
+      -0.00270718,
+      0.01433193,
+      -0.00371085,
+      0.00370825,
+      -0.00360711,
+      0.0030327,
+      0.00818354,
+      -0.01721431,
+      -0.01584813
+    ],
+    [
+      -0.00780661,
+      -0.011425,
+      -0.01191873,
+      -0.01905992,
+      0.00743748,
+      0.01195239,
+      -0.01218095,
+      -0.01878191,
+      -0.00578702,
+      -0.00326007,
+      -0.00812289,
+      -0.00263445
+    ],
+    [
+      -0.00997258,
+      0.00784924,
+      0.01449382,
+      0.02245586,
+      -0.00671189,
+      0.00586579,
+      -0.00218829,
+      -0.02489319,
+      0.01028433,
+      0.01052596,
+      -0.00416093,
+      -0.00321076
+    ],
+    [
+      -0.01656409,
+      -0.01869326,
+      0.00093474,
+      -0.00063743,
+      -0.00412834,
+      -0.0019426,
+      -0.01002869,
+      0.0045043,
+      0.0028105,
+      -0.00373799,
+      -0.01083684,
+      -0.02032593
+    ],
+    [
+      -0.01548139,
+      0.02050243,
+      0.01063878,
+      -0.00084011,
+      -0.00711635,
+      -0.00587148,
+      -0.00136807,
+      -0.00807273,
+      0.00537771,
+      0.00683975,
+      -0.00866245,
+      0.0069978
+    ]
+  ],
+  "cases": [
+    {
+      "name": "baseline_complete_profiles",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "missing_reach_corner_a",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": null,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "missing_reach_both",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": null,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": null,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "missing_height_corner_b",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": null,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "missing_dob_corner_a",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": null,
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "missing_all_physicals",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": null,
+        "height_cm": null,
+        "date_of_birth": null,
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_orthodox_vs_southpaw",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 1.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6650467738865041,
+        0.23033690652440275,
+        0.049414617376473124,
+        0.03344107285779152,
+        0.009738277248256528,
+        0.012022352106571902
+      ]
+    },
+    {
+      "name": "stance_southpaw_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 1.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6650467738865041,
+        0.23033690652440275,
+        0.049414617376473124,
+        0.03344107285779152,
+        0.009738277248256528,
+        0.012022352106571902
+      ]
+    },
+    {
+      "name": "stance_orthodox_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_southpaw_vs_southpaw",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_switch_vs_southpaw",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "switch"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_unknown_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "unknown"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_empty_vs_southpaw",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": ""
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_null_vs_southpaw",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": null
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "southpaw"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "stance_mixed_case_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "Southpaw"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 1.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6650467738865041,
+        0.23033690652440275,
+        0.049414617376473124,
+        0.03344107285779152,
+        0.009738277248256528,
+        0.012022352106571902
+      ]
+    },
+    {
+      "name": "stance_padded_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "  southpaw  "
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 1.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6650467738865041,
+        0.23033690652440275,
+        0.049414617376473124,
+        0.03344107285779152,
+        0.009738277248256528,
+        0.012022352106571902
+      ]
+    },
+    {
+      "name": "stance_unrecognised_vs_orthodox",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "sideways"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6640545861688189,
+        0.23174232526074293,
+        0.04926618278253927,
+        0.03320878768146209,
+        0.009735410422816462,
+        0.011992707683620204
+      ]
+    },
+    {
+      "name": "swapped_corners",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": -185.30000000000018,
+        "striker_score_diff": -0.42,
+        "grappler_score_diff": 0.39,
+        "finish_threat_diff": -0.21000000000000002,
+        "finish_vulnerability_diff": 0.33999999999999997,
+        "striking_matchup": 0.08410000000000001,
+        "grappling_matchup": 0.4774,
+        "finish_matchup": 0.09839999999999999,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        -185.30000000000018,
+        -0.42,
+        0.39,
+        -0.21000000000000002,
+        0.33999999999999997,
+        0.08410000000000001,
+        0.4774,
+        0.09839999999999999,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.006263826131052692,
+        0.01789349928724983,
+        0.08360593472956099,
+        0.12394062560076385,
+        0.4246605972993262,
+        0.34363551695204636
+      ]
+    },
+    {
+      "name": "integer_physicals",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183,
+        "height_cm": 180,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 175,
+        "height_cm": 177,
+        "date_of_birth": "1993-07-19",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 8.0,
+        "height_diff_cm": 3.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": 0.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        8.0,
+        3.0,
+        0.0,
+        0.0
+      ],
+      "expected_probs": [
+        0.6427195917689483,
+        0.24857194698059093,
+        0.04758204809921848,
+        0.0380142493132242,
+        0.010057653115221712,
+        0.01305451072279634
+      ]
+    },
+    {
+      "name": "corner_a_older",
+      "weight_class": "lightweight",
+      "fight_date": "2026-05-16",
+      "elo_a": {
+        "fighter_id": "a",
+        "elo": 1682.4,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "elo_b": {
+        "fighter_id": "b",
+        "elo": 1497.1,
+        "uncertainty": 118.5,
+        "last_fight_date": "2025-11-08",
+        "n_fights": 12,
+        "primary_tier": 1
+      },
+      "axes_a": {
+        "fighter_id": "a",
+        "striker_score": 0.71,
+        "grappler_score": 0.38,
+        "finish_threat": 0.62,
+        "finish_vulnerability": 0.24,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "axes_b": {
+        "fighter_id": "b",
+        "striker_score": 0.29,
+        "grappler_score": 0.77,
+        "finish_threat": 0.41,
+        "finish_vulnerability": 0.58,
+        "striker_uncertainty": 0.09,
+        "grappler_uncertainty": 0.11,
+        "n_quality_fights": 9.0
+      },
+      "profile_a": {
+        "fighter_id": "a",
+        "name": "A",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1988-01-02",
+        "stance": "orthodox"
+      },
+      "profile_b": {
+        "fighter_id": "b",
+        "name": "B",
+        "reach_cm": 183.0,
+        "height_cm": 180.5,
+        "date_of_birth": "1998-01-02",
+        "stance": "orthodox"
+      },
+      "expected_features": {
+        "elo_differential": 185.30000000000018,
+        "striker_score_diff": 0.42,
+        "grappler_score_diff": -0.39,
+        "finish_threat_diff": 0.21000000000000002,
+        "finish_vulnerability_diff": -0.33999999999999997,
+        "striking_matchup": 0.5041,
+        "grappling_matchup": 0.08739999999999999,
+        "finish_matchup": 0.3596,
+        "reach_diff_cm": 0.0,
+        "height_diff_cm": 0.0,
+        "stance_mismatch": 0.0,
+        "age_diff_days": -3653.0
+      },
+      "expected_x": [
+        185.30000000000018,
+        0.42,
+        -0.39,
+        0.21000000000000002,
+        -0.33999999999999997,
+        0.5041,
+        0.08739999999999999,
+        0.3596,
+        0.0,
+        0.0,
+        0.0,
+        -3653.0
+      ],
+      "expected_probs": [
+        8.027561512852177e-39,
+        1.873787107617293e-06,
+        4.3356536824480515e-28,
+        2.3991736359423832e-27,
+        0.9999981262128924,
+        5.521698446475411e-44
+      ]
+    }
+  ]
+}

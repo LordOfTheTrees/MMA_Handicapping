@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -253,7 +252,7 @@ def main() -> int:
     fig3, ax3 = plt.subplots(figsize=(8, 5))
     ax3.scatter(rank_fracs, debut_years, s=8, alpha=0.4, c="C2")
     rf = np.array(rank_fracs, dtype=float)
-    yy = np.array(debut_years, dtype=float)
+    _yy = np.array(debut_years, dtype=float)  # retained: mirrors rf for ad-hoc probing
     if len(rf) >= 2:
         y_hat_r = lr_rank_year.intercept + lr_rank_year.slope * rf
         ax3.plot(rf, y_hat_r, color="C3", lw=2, label="OLS")
