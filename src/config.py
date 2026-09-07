@@ -94,6 +94,30 @@ class ModelConfig:
     # L2 regularization weight on regression coefficients.
     l2_lambda: float = 0.00012812385533133005
 
+    # --- Feature scaling ---------------------------------------------------
+    # Fit on X / column-std instead of raw X, then transform the coefficients back so
+    # ``W`` stays in raw-feature space and nothing downstream changes.
+    #
+    # Why it matters: the 12 columns span ~4 orders of magnitude (elo_differential ±572,
+    # age_diff_days in the thousands, grappler_score_diff ±0.32) and share one
+    # ``l2_lambda``. Since L2 penalises coefficient magnitude and coefficients scale
+    # inversely with their feature, the style axes are currently regularised roughly a
+    # thousand times harder than ELO — almost certainly not what ``l2_lambda`` was tuned
+    # to mean. Scaling makes the penalty scale-free and drops the Hessian condition
+    # number, so L-BFGS-B needs far fewer iterations.
+    #
+    # Only the *scale* is normalised, never the mean: the model has no intercept term
+    # (``logits = X @ W.T``), so mean-centring would push a per-class bias into the fit
+    # with nowhere to store it, changing the model class rather than just its
+    # conditioning. Dividing by the column std is exactly invertible; subtracting the
+    # mean is not.
+    #
+    # Left off by default on purpose. Turning it on changes what ``l2_lambda`` means, so
+    # the shipped ``huber_delta`` / ``l2_lambda`` no longer apply — re-run the Phase-3
+    # tuning sweep before enabling it in production. Measure first with
+    # ``scripts/dev/benchmark_feature_scaling.py``.
+    standardize_features: bool = False
+
     # --- L-BFGS-B (point fit + bootstrap refits align on these defaults) ---
     # Raised above historical 3000 so tuned hyperparameters can converge without
     # hitting the iteration limit.
