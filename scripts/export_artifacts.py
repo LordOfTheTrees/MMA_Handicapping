@@ -120,6 +120,9 @@ def _export_model_weights(predictor: MMAPredictor, manifest: dict[str, Any]) -> 
             "convergence_message": reg.convergence_message or None,
             "n_iter": reg.n_iter,
             "final_loss": reg.final_loss,
+            # W is exported in raw-feature space either way; this records how it was
+            # reached, because it changes what l2_lambda meant during the fit.
+            "standardized_features": reg.feature_scale is not None,
         },
         "training_config": _json_sanitize(_config_snapshot(predictor)),
     }

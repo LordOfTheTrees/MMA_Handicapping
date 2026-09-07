@@ -95,6 +95,9 @@ def _bootstrap_train_one(
             max_iter=getattr(m, "lbfgs_max_iter", 10_000),
             ftol=getattr(m, "lbfgs_ftol", 1e-12),
             gtol=getattr(m, "lbfgs_gtol", 1e-7),
+            # Match the point fit: these draws describe uncertainty around it, so they
+            # must carry the same regularisation. W returns in raw space regardless.
+            standardize=getattr(m, "standardize_features", False),
         )
         if model_b.W is not None:
             return np.asarray(model_b.W, dtype=float).copy()
@@ -149,6 +152,9 @@ def _bootstrap_ci_predict_one(
             max_iter=getattr(m, "lbfgs_max_iter", 10_000),
             ftol=getattr(m, "lbfgs_ftol", 1e-12),
             gtol=getattr(m, "lbfgs_gtol", 1e-7),
+            # Match the point fit: these draws describe uncertainty around it, so they
+            # must carry the same regularisation. W returns in raw space regardless.
+            standardize=getattr(m, "standardize_features", False),
         )
         return model_b.predict_proba(np.asarray(x, dtype=float))
     except Exception:
@@ -446,6 +452,7 @@ def bootstrap_ci(
                     max_iter=getattr(config, "lbfgs_max_iter", 10_000),
                     ftol=getattr(config, "lbfgs_ftol", 1e-12),
                     gtol=getattr(config, "lbfgs_gtol", 1e-7),
+                    standardize=getattr(config, "standardize_features", False),
                 )
                 x_pred = x.copy()
                 x_pred[0] += (
