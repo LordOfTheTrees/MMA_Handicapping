@@ -1,0 +1,26 @@
+# Tooling configuration only — this repo is run as scripts/CLIs, not installed as a package.
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately narrow. This repo predates linting and carries ~1100 pyupgrade and ~50
+# import-order findings that are pure style; enabling them wholesale would bury real
+# defects in noise and make the first CI run red.
+#
+# What is enabled catches things that are actually wrong: pyflakes (undefined names,
+# unused imports and variables, duplicate definitions — this set found a genuine
+# undefined `List` in tuning_plots.py), syntax/IO errors, and whitespace breakage.
+#
+# Widen over time, one group at a time, each with its own cleanup commit:
+#   I  (49)    import sorting
+#   C4 (7)     comprehension simplification
+#   RET (2)    return-path simplification
+#   B  (24)    bugbear — worth reading through, some are real
+#   UP (1134)  pyupgrade — large but mechanical
+select = ["F", "E9", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scratch analyses keep intermediate values around for interactive probing.
+"scripts/dev/*" = ["F841"]

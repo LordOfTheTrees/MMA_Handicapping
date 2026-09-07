@@ -90,7 +90,7 @@ def cmd_predict(args: argparse.Namespace) -> None:
     print(f"\n{args.fighter_a}  vs  {args.fighter_b}  |  {wc.value}  |  {fdate}\n")
     result = predictor.predict(args.fighter_a, args.fighter_b, wc, fdate, verbose=True)
 
-    print(f"\nDerived:")
+    print("\nDerived:")
     print(
         f"  Total win %    {100 * result.total_win:.2f}  "
         f"(finish {100 * result.finish_win:.2f}, decision {100 * result.p_win_decision:.2f})"

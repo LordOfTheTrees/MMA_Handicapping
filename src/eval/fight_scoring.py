@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
-from ..data.schema import DataTier, FightRecord, WeightClass
+from ..data.schema import DataTier, FightRecord
 from ..model.regression import N_CLASSES, encode_outcome
 
 if TYPE_CHECKING:

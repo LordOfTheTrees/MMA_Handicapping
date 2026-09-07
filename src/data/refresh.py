@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .espn_audit import format_audit_log_lines, run_espn_ingest_audit
+from .espn_audit import run_espn_ingest_audit
 from .espn_client import ESPNClient
 from .espn_ingest import refresh_espn_fights_incremental
 from .espn_profiles import refresh_espn_profiles_incremental

@@ -263,6 +263,21 @@ def _robust_nll_and_grad(
 # Model class
 # ---------------------------------------------------------------------------
 
+class ConvergenceError(RuntimeError):
+    """
+    L-BFGS-B stopped without converging on a fit that was required to converge.
+
+    Raised only when ``fit(strict=True)``. The unattended retrain workflows use the strict
+    path so a failed optimisation stops the pipeline instead of exporting the coefficients
+    the optimiser happened to be holding when it gave up.
+    """
+
+    def __init__(self, message: str, *, n_iter: int, final_loss: float) -> None:
+        super().__init__(message)
+        self.n_iter = n_iter
+        self.final_loss = final_loss
+
+
 class MultinomialLogisticModel:
     """
     6-class multinomial logistic regression with a robust Huber loss.
@@ -283,6 +298,25 @@ class MultinomialLogisticModel:
         self.l2_lambda = l2_lambda
         self.W: Optional[np.ndarray] = None   # (N_CLASSES, n_features)
         self.is_fitted = False
+        #: Whether the last ``fit`` reached an L-BFGS-B success status. ``None`` before fitting.
+        self.converged: Optional[bool] = None
+        #: scipy's termination message from the last ``fit``.
+        self.convergence_message: str = ""
+        #: Iterations used and final robust NLL from the last ``fit``.
+        self.n_iter: Optional[int] = None
+        self.final_loss: Optional[float] = None
+
+    def __setstate__(self, state: dict) -> None:
+        """Pickle migration: models trained before convergence was recorded lack those fields."""
+        self.__dict__.update(state)
+        for name, default in (
+            ("converged", None),
+            ("convergence_message", ""),
+            ("n_iter", None),
+            ("final_loss", None),
+        ):
+            if name not in self.__dict__:
+                setattr(self, name, default)
 
     # ------------------------------------------------------------------
     # Fitting
@@ -297,6 +331,7 @@ class MultinomialLogisticModel:
         verbose: bool = False,
         ftol: float = 1e-12,
         gtol: float = 1e-7,
+        strict: bool = False,
     ) -> "MultinomialLogisticModel":
         """
         Fit coefficients using L-BFGS-B.
@@ -305,6 +340,19 @@ class MultinomialLogisticModel:
         y : (n_samples,)             int in [0, N_CLASSES)
         ftol, gtol : passed to ``scipy.optimize.minimize`` (L-BFGS-B). Tuning / pilot
             can relax these; defaults match historical behavior.
+        strict : raise :class:`ConvergenceError` when L-BFGS-B reports failure instead of
+            keeping whatever iterate it stopped on. Callers that ship the coefficients —
+            ``MMAPredictor.train_regression`` and therefore the retrain workflows — pass
+            True. Bootstrap resampling leaves it False: individual draws are allowed to
+            struggle, and the caller counts them rather than aborting the whole run.
+
+        Regardless of *strict*, the outcome is recorded on the model (``converged``,
+        ``convergence_message``, ``n_iter``, ``final_loss``) so callers and the artifact
+        export can report it. A non-converged fit is never silently indistinguishable
+        from a converged one.
+
+        Raises:
+            ConvergenceError: if *strict* and L-BFGS-B did not report success.
         """
         init_params = np.zeros(N_CLASSES * self.n_features)
 
@@ -316,6 +364,11 @@ class MultinomialLogisticModel:
             jac=True,
             options={"maxiter": max_iter, "ftol": ftol, "gtol": gtol},
         )
+
+        self.converged = bool(result.success)
+        self.convergence_message = str(result.message)
+        self.n_iter = int(result.nit)
+        self.final_loss = float(result.fun)
 
         if verbose:
             ok = "ok" if result.success else "check"
@@ -329,6 +382,21 @@ class MultinomialLogisticModel:
                 f"scipy success={result.success}",
                 flush=True,
             )
+
+        if not self.converged:
+            detail = (
+                f"L-BFGS-B did not converge after {self.n_iter} iterations "
+                f"(final robust NLL {self.final_loss:.6f}): {self.convergence_message}"
+            )
+            if strict:
+                raise ConvergenceError(
+                    detail + ". Coefficients were NOT stored; refusing to ship a "
+                    "non-converged fit. Loosen ftol/gtol or raise lbfgs_max_iter "
+                    "in ModelConfig if this is expected.",
+                    n_iter=self.n_iter,
+                    final_loss=self.final_loss,
+                )
+            print(f"  [regression] WARNING: {detail}", flush=True)
 
         self.W = result.x.reshape(N_CLASSES, self.n_features)
         self.is_fitted = True

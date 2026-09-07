@@ -11,7 +11,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from src.data.espn_normalize import normalize_fighter_name
 

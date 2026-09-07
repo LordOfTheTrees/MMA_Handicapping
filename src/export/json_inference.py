@@ -96,12 +96,21 @@ def _coerce_primary_tier(v: Any) -> DataTier:
 
 
 def _parse_stance(raw: Any) -> Stance:
+    """
+    Parse a stance cell the same way the training loader does.
+
+    ``loader.load_fighter_profiles`` maps ``stance.strip().lower()`` through ``STANCE_MAP``,
+    and the deployed API port normalises identically. Matching that here matters: an exact
+    ``Stance(str(raw))`` lookup would read ``"Southpaw"`` as ``UNKNOWN`` while both other
+    implementations read it as ``SOUTHPAW``, silently flipping ``stance_mismatch`` between
+    training and serving for any export that carries a raw-cased value.
+    """
     if raw is None or raw == "":
         return Stance.UNKNOWN
     if isinstance(raw, Stance):
         return raw
     try:
-        return Stance(str(raw))
+        return Stance(str(raw).strip().lower())
     except ValueError:
         return Stance.UNKNOWN
 

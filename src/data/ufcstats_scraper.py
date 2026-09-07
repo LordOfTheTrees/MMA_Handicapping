@@ -427,7 +427,7 @@ def _totals_fighter_rows(table) -> Optional[List[FighterFightRow]]:
         ps = td.select("p.b-fight-details__table-text")
         return [p.get_text(strip=True) for p in ps]
 
-    kd = col_vals(1)
+    _kd = col_vals(1)  # knockdowns column; parsed but not yet surfaced in FighterFightRow
     sig = col_vals(2)
     td_ = col_vals(5)
     sub = col_vals(7)

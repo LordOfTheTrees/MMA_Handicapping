@@ -83,6 +83,15 @@ def _export_model_weights(predictor: MMAPredictor, manifest: dict[str, Any]) -> 
     if W.shape != (N_CLASSES, len(FEATURE_NAMES)):
         raise ValueError(f"Unexpected W shape {W.shape}; expected ({N_CLASSES}, {len(FEATURE_NAMES)})")
 
+    # Last line of defence for the unattended workflows: train_regression fits with
+    # strict=True, but a pickle restored from an older run predates that check. Refuse to
+    # publish coefficients that are known not to have converged.
+    if reg.converged is False:
+        raise RuntimeError(
+            "Refusing to export a non-converged regression fit "
+            f"(n_iter={reg.n_iter}, final_loss={reg.final_loss}): {reg.convergence_message}"
+        )
+
     bootstrap = getattr(predictor, "_bootstrap_W", None)
     boot_list: Optional[list]
     if bootstrap is None:
@@ -106,6 +115,11 @@ def _export_model_weights(predictor: MMAPredictor, manifest: dict[str, Any]) -> 
             "l2_lambda": float(reg.l2_lambda),
             "n_features": int(reg.n_features),
             "is_fitted": bool(reg.is_fitted),
+            # ``converged`` is None for pickles trained before convergence was recorded.
+            "converged": reg.converged,
+            "convergence_message": reg.convergence_message or None,
+            "n_iter": reg.n_iter,
+            "final_loss": reg.final_loss,
         },
         "training_config": _json_sanitize(_config_snapshot(predictor)),
     }

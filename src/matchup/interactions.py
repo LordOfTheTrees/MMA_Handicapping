@@ -14,7 +14,7 @@ reverses the interaction terms, and flips predicted win↔lose probabilities.
 """
 import numpy as np
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from ..data.schema import (
     ELOState, FighterProfile, MatchupFeatures, Stance, StyleAxes,
