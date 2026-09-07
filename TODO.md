@@ -80,6 +80,125 @@ python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 
 ---
 
+## Engineering quality (from code review, 2026-09-07)
+
+Codebase-health items rather than modeling or data work, ordered by impact. Each is
+verified against the tree with the measurement that justifies it. Deploy-repo items live
+in **`mma.ai`** [`TODO.md`](https://github.com/LordOfTheTrees/MMA.AI/blob/main/TODO.md);
+item 4 below is cross-repo and appears in both.
+
+### 1. CI exists here but has never actually run
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `ruff check .` + `pytest -q`
+(126 tests) on Python 3.12 and 3.13, plus a job that regenerates the cross-repo parity
+fixture and diffs it against the committed copy. It triggers on `pull_request` and
+`push: main` — and no PR has ever opened, so **not one step has executed**. Every step was
+verified locally in a clean venv built from `requirements-dev.txt`, which is not the same
+as having run.
+
+- [ ] Open a PR for the current branch so the workflow executes at least once. Cheapest
+      item on this list by a wide margin.
+
+### 2. `print()` everywhere, no `logging`
+
+**264** `print()` calls in `src/`; **zero** modules import `logging`. The monthly retrain
+runs unattended for up to 12 hours (`timeout-minutes: 720`) and everything it emits is
+undifferentiated stdout — no levels, no timestamps, no way to filter for the failure.
+
+- [ ] Move `src/` to `logging` with a module-level logger, keeping the existing message
+      text. CLI entry points configure a handler; library code just logs.
+- [ ] Progress counters (`matrix_progress_every`, bootstrap ticks) stay as-is or move to
+      `tqdm` — those are genuinely for a human watching a terminal.
+
+*(`mma.ai` already does this correctly — `logging` throughout — so the target style is
+settled.)*
+
+### 3. `market_book.py` is 1,503 lines with ~120 duplicated
+
+`_kelly_path` / `_kelly_path_simul` are ~95% identical: the drawdown, ruin and
+Brownian-approximation block is copy-pasted character for character, as is the return
+dict. Same pattern for `_flat_1u_path` / `_flat_1u_path_simul` and
+`rollup_picks` / `rollup_simul` (54 `_simul` references in the file).
+
+- [ ] Collapse the three pairs into one wealth-path walker parameterised by a per-item
+      `(log_growth, multiplier, stake)` callback.
+- [ ] Split the module into a package while in there — parsing, staking, accumulation and
+      CLI are four separable concerns in one file.
+- [ ] [`tests/test_market_book.py`](tests/test_market_book.py) (376 lines) covers this
+      well enough to refactor against.
+
+### 4. Generated artifacts are committed into `mma.ai` *(cross-repo)*
+
+[`.github/workflows/sync-json-to-mma-ai.yml`](.github/workflows/sync-json-to-mma-ai.yml)
+pushes `JSON_exports/` into the deploy repo on every refresh. There, 20 of 52 commits are
+artifact syncs rewriting ~41,000 lines each, and `.git` is 20 MB against ~11k LOC of
+source. The producer is here, so the fix is partly here.
+
+- [ ] Publish the bundle as release assets / object storage; have the deploy image fetch it.
+- [ ] Interim: stop pretty-printing `bootstrap_W` in
+      [`scripts/export_artifacts.py`](scripts/export_artifacts.py) — 200 matrices at one
+      float per line is most of the 33k-line churn in `model_weights.json`.
+
+### 5. Dependencies are floor-pinned in a repo that produces model artifacts
+
+All six entries in [`requirements.txt`](requirements.txt) are `>=` with no upper bound and
+no lockfile, including `numpy` and `scipy`. The monthly retrain resolves them fresh, so a
+numeric result is not reproducible from the repo alone. `mma.ai` pins exactly.
+
+- [ ] Pin exact versions here too, or add a lockfile.
+- [ ] Record the resolved versions in the export manifest so an artifact says what built it.
+
+### 6. Widen the lint scope one group at a time
+
+[`pyproject.toml`](pyproject.toml) selects only `F`, `E9`, `W` — deliberately narrow so the
+first CI run was green rather than buried under ~1,200 style findings. That initial set
+already earned itself: it found an undefined `List` in
+[`src/eval/tuning_plots.py`](src/eval/tuning_plots.py) (latent only because the module has
+`from __future__ import annotations`), 12 unused imports and two dead assignments.
+
+Remaining groups, counted under the pinned `ruff==0.15.8` — each wants its own cleanup
+commit:
+
+- [ ] `RET` (2) — return-path simplification
+- [ ] `C4` (11) — comprehension simplification
+- [ ] `B` (25) — bugbear; worth reading individually, some are real
+- [ ] `I` (42) — import sorting
+- [ ] `UP` (1,162) — pyupgrade; large but mechanical
+
+Counts move with the ruff version, so re-measure before starting:
+`ruff check src scripts tests main.py --select <GROUP> --statistics`.
+
+### 7. Decide on `standardize_features` (opt-in, currently off)
+
+[`ModelConfig.standardize_features`](src/config.py) fits on column-scaled features and
+transforms coefficients back to raw space, so `W` and every consumer are unchanged. It is
+**off by default** because enabling it changes what `l2_lambda` means — the shipped tuned
+`huber_delta` / `l2_lambda` no longer apply, and flipping it silently would ship an
+untuned model out of the unattended retrain.
+
+Measured on a matrix built through the real feature construction: `cond(X'X)` 2.9e13 →
+1.2e06, and L-BFGS-B went from hitting the 10,000-iteration cap **without converging** to
+converging in ~305. The `grappling_matchup` column is currently penalised ~4e11 times as
+hard as `age_diff_days` by the shared `l2_lambda`.
+
+- [ ] Run [`scripts/dev/benchmark_feature_scaling.py`](scripts/dev/benchmark_feature_scaling.py)
+      on the real corpus. It reports both regimes and says whether a re-tune is mandatory.
+- [ ] If held-out log-loss is flat → enable and re-tune `l2_lambda` for the new meaning.
+- [ ] If it moves → `l2_lambda` was doing accidental feature selection through the scale
+      disparity. Worth understanding *what* it was selecting before tuning it away.
+- [ ] Separately: even after scaling, conditioning lands near 1e6 because
+      `striker_score_diff` and `striking_matchup` are near-collinear by construction. Only
+      worth chasing if the numbers say it costs something.
+
+### Not an issue after a closer look
+
+`TODO.md` and [`docs/todo.md`](docs/todo.md) were flagged in review as duplicated backlog.
+They are not — this file is the roadmap, that one holds phased checklists and column
+specs, and each points at the other. The split is deliberate and documented. Noted here so
+it does not get "fixed."
+
+---
+
 ## Side projects (low priority)
 
 - **ELO trajectory “never downtrend” scan** — Use recorded ELO trajectories (`build_elo(..., record_trajectories=True)`, `ELOModel.get_trajectory`) and analyze **concavity / segment slopes** (or consecutive fight-to-fight deltas) to flag fighters whose path in a weight class **never exhibits a downward trend** by your operational definition. Exploratory; not part of training or Phase 3 metrics. Starting point: [`src/cli/chart_elo_trajectory.py`](src/cli/chart_elo_trajectory.py) (`python -m src.cli.chart_elo_trajectory`) and [`src/elo/`](src/elo/).
