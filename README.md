@@ -116,7 +116,7 @@ Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO
 | **`JSON_exports/model_weights.json`** | Regression **W**, bootstrap draws, inference config slice |
 | **`JSON_exports/elo_states.json`** | Per fighter × division ELO snapshot |
 | **`JSON_exports/style_axes.json`** | Style axes snapshot |
-| **`JSON_exports/fighter_profiles.json`** | Names, reach, stance, pedigree, … plus per-division `elo_trajectories`: one point per bout carrying `elo`, `fight_id`, `opponent_fighter_id`, `result_method` and `outcome_class` (0-5, `null` for draw/NC/DQ) |
+| **`JSON_exports/fighter_profiles.json`** | Names, reach, stance, pedigree, … plus per-division `elo_trajectories`: one point per bout carrying `elo`, `fight_id`, `opponent_fighter_id` and `outcome_class` (0-5; `null` for draw/NC/DQ, where a `result_method` key appears instead) |
 | **`JSON_exports/reference_distributions.json`** | mma.ai quantile grids (`matchup_features` 0…100, `division_elo`) + optional `chart_histograms` (bin/count payloads) |
 | **`JSON_exports/feature_interpretability.json`** | Real per-feature marginal betas (L2 norm of each `W` column), population + per-division share baselines, and 101-point marginal-magnitude quantiles for percentile ranking |
 | **`JSON_exports/espn_crosswalk.json`** | Internal id → ESPN id maps: fights to `espn_<event>_<competition>`, fighters to ESPN athlete ids |

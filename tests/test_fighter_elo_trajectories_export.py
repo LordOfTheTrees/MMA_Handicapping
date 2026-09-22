@@ -14,7 +14,11 @@ from scripts import export_artifacts  # noqa: E402
 from src.config import Config  # noqa: E402
 from src.data.schema import DataTier, FightRecord, FighterProfile, ResultMethod, WeightClass
 from src.elo.elo import ELOModel, TrajectoryPoint
-from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter
+from src.export.fighter_elo_trajectories import (
+    MissingTrajectoryOutcomes,
+    assert_trajectories_carry_outcomes,
+    nested_elo_trajectories_by_fighter,
+)
 from src.model.regression import CLASS_LABELS
 from src.pipeline import MMAPredictor
 
@@ -91,14 +95,28 @@ class TestTrajectoryOutcomes(unittest.TestCase):
         nested = nested_elo_trajectories_by_fighter(em)
         return nested[fighter_id][WeightClass.LIGHTWEIGHT.value]
 
-    def test_point_carries_fight_id_method_and_class(self) -> None:
+    def test_point_carries_fight_id_and_class(self) -> None:
         fa, fb = "id_alpha", "id_beta"
         fights = [_fight(7, fa, fb, date(2024, 3, 2), method=ResultMethod.KO_TKO)]
         point = self._series(fights, fa)[0]
         self.assertEqual(point["fight_id"], "f7")
-        self.assertEqual(point["result_method"], "ko_tko")
         self.assertEqual(point["outcome_class"], 0)
         self.assertEqual(CLASS_LABELS[point["outcome_class"]], "Win by KO/TKO")
+
+    def test_decisive_points_omit_result_method_entirely(self) -> None:
+        """outcome_class already names the method; repeating it cost ~0.89 MB."""
+        fa, fb = "id_alpha", "id_beta"
+        for method in (
+            ResultMethod.KO_TKO,
+            ResultMethod.SUBMISSION,
+            ResultMethod.UNANIMOUS_DECISION,
+            ResultMethod.SPLIT_DECISION,
+        ):
+            with self.subTest(method=method):
+                fights = [_fight(7, fa, fb, date(2024, 3, 2), method=method)]
+                point = self._series(fights, fa)[0]
+                self.assertNotIn("result_method", point)
+                self.assertIsNotNone(point["outcome_class"])
 
     def test_both_corners_record_the_same_bout_from_opposite_sides(self) -> None:
         """The loser's point must not inherit the winner's class."""
@@ -107,7 +125,6 @@ class TestTrajectoryOutcomes(unittest.TestCase):
         winner = self._series(fights, fa)[0]
         loser = self._series(fights, fb)[0]
         self.assertEqual(winner["fight_id"], loser["fight_id"])
-        self.assertEqual(winner["result_method"], loser["result_method"])
         self.assertEqual(winner["outcome_class"], 1)
         self.assertEqual(loser["outcome_class"], 5)
         self.assertEqual(CLASS_LABELS[1], "Win by Submission")
@@ -130,7 +147,8 @@ class TestTrajectoryOutcomes(unittest.TestCase):
                 fights = [_fight(9, fa, fb, date(2024, 5, 4), winner_a=a_wins, method=method)]
                 self.assertEqual(self._series(fights, fa)[0]["outcome_class"], expected)
 
-    def test_draw_and_no_contest_have_a_method_but_no_class(self) -> None:
+    def test_non_decisive_bouts_keep_result_method_as_their_only_description(self) -> None:
+        """No class exists for these, so draw / NC / DQ would otherwise be indistinguishable."""
         fa, fb = "id_alpha", "id_beta"
         for method in (ResultMethod.DRAW, ResultMethod.NO_CONTEST, ResultMethod.DQ):
             with self.subTest(method=method):
@@ -149,8 +167,8 @@ class TestTrajectoryOutcomes(unittest.TestCase):
         self.assertEqual(point["elo"], 1500.0)
         self.assertEqual(point["opponent_fighter_id"], "id_beta")
         self.assertIsNone(point["fight_id"])
-        self.assertIsNone(point["result_method"])
         self.assertIsNone(point["outcome_class"])
+        self.assertNotIn("result_method", point)
 
     def test_plot_helpers_still_index_the_first_three_positions(self) -> None:
         """Charts read p[0], p[1], p[2]; appended fields must not shift them."""
@@ -158,6 +176,55 @@ class TestTrajectoryOutcomes(unittest.TestCase):
         self.assertEqual(p[0], date(2024, 7, 1))
         self.assertEqual(p[1], 1510.5)
         self.assertEqual(p[2], "id_beta")
+
+
+class TestMissingOutcomesIsAHardFailure(unittest.TestCase):
+    """
+    Nothing else exports fight outcomes, so an export that drops them ships a site whose
+    result-dependent pages silently have no results — invisible in a green pipeline.
+    """
+
+    def _predictor_with(self, *, record: bool) -> MMAPredictor:
+        fa, fb = "id_alpha", "id_beta"
+        p = MMAPredictor(Config())
+        p.profiles = {
+            fa: FighterProfile(fighter_id=fa, name="Alpha"),
+            fb: FighterProfile(fighter_id=fb, name="Beta"),
+        }
+        p.load_fights_direct([_fight(1, fa, fb, date(2023, 6, 1))])
+        p.build_elo(record_trajectories=record)
+        return p
+
+    def test_assert_raises_when_no_trajectories_were_recorded(self) -> None:
+        with self.assertRaises(MissingTrajectoryOutcomes):
+            assert_trajectories_carry_outcomes({})
+
+    def test_assert_raises_when_points_predate_outcome_recording(self) -> None:
+        """A restored legacy pickle has points but no outcomes — the sneaky case."""
+        legacy = {"id_alpha": {"lightweight": [{"fight_date": "2019-01-01", "fight_id": None}]}}
+        with self.assertRaises(MissingTrajectoryOutcomes):
+            assert_trajectories_carry_outcomes(legacy)
+
+    def test_assert_passes_once_any_point_is_identified(self) -> None:
+        ok = {"id_alpha": {"lightweight": [{"fight_date": "2024-01-01", "fight_id": "f1"}]}}
+        assert_trajectories_carry_outcomes(ok)
+
+    def test_export_fighter_profiles_refuses_a_bundle_without_outcomes(self) -> None:
+        pred = self._predictor_with(record=False)
+        with self.assertRaises(MissingTrajectoryOutcomes):
+            export_artifacts._export_fighter_profiles(pred, {"export_schema_version": "v"})
+
+    def test_export_fighter_profiles_allows_an_explicit_opt_out(self) -> None:
+        pred = self._predictor_with(record=False)
+        doc = export_artifacts._export_fighter_profiles(
+            pred, {"export_schema_version": "v"}, require_outcomes=False
+        )
+        self.assertNotIn("elo_trajectories", doc["profiles"]["id_alpha"])
+
+    def test_recorded_trajectories_pass_the_default_check(self) -> None:
+        pred = self._predictor_with(record=True)
+        doc = export_artifacts._export_fighter_profiles(pred, {"export_schema_version": "v"})
+        self.assertIn("elo_trajectories", doc["profiles"]["id_alpha"])
 
 
 if __name__ == "__main__":

@@ -45,7 +45,10 @@ from src.export.espn_crosswalk_export import (  # noqa: E402
     ESPN_CROSSWALK_FILENAME,
     build_espn_crosswalk_document,
 )
-from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter  # noqa: E402
+from src.export.fighter_elo_trajectories import (  # noqa: E402
+    assert_trajectories_carry_outcomes,
+    nested_elo_trajectories_by_fighter,
+)
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
 from src.export.reference_distributions_export import (  # noqa: E402
     REFERENCE_DISTRIBUTIONS_FILENAME,
@@ -195,15 +198,20 @@ def _export_reference_distributions(
     )
 
 
-def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) -> dict[str, Any]:
+def _export_fighter_profiles(
+    predictor: MMAPredictor,
+    manifest: dict[str, Any],
+    *,
+    require_outcomes: bool = True,
+) -> dict[str, Any]:
     em = predictor.elo_model
     by_fid = nested_elo_trajectories_by_fighter(em) if em is not None else {}
-    if not by_fid:
+    if require_outcomes:
+        assert_trajectories_carry_outcomes(by_fid)
+    elif not by_fid:
         print(
-            "[export_artifacts] WARNING: no ELO trajectories recorded, so fighter_profiles.json "
-            "ships no elo_trajectories and therefore NO FIGHT OUTCOMES (fight_id / result_method "
-            "/ outcome_class). Rebuild with record_trajectories=True — see "
-            "--rebuild-elo-for-trajectories.",
+            "[export_artifacts] WARNING: exporting without ELO trajectories "
+            "(--allow-missing-trajectories); fighter_profiles.json ships NO FIGHT OUTCOMES.",
             flush=True,
         )
     profs: dict[str, Any] = {}
@@ -254,11 +262,18 @@ def export_all(
     *,
     as_of: Optional[date] = None,
     data_dir: Optional[Path] = None,
+    require_trajectory_outcomes: bool = True,
 ) -> tuple[Path, ...]:
     """Write every artifact JSON under *out_dir*; returns the paths in write order.
 
     *data_dir* supplies the ESPN crosswalk CSVs for ``espn_crosswalk.json`` and defaults to
     ``<repo>/data``.
+
+    Fight outcomes ship only on ``fighter_profiles.elo_trajectories``, so by default an export
+    that would omit them raises
+    :class:`~src.export.fighter_elo_trajectories.MissingTrajectoryOutcomes` rather than writing
+    a bundle that breaks every result-dependent page. Pass *require_trajectory_outcomes* as
+    ``False`` to write a knowingly incomplete bundle.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -278,7 +293,12 @@ def export_all(
         ("model_weights.json", _export_model_weights(predictor, manifest)),
         ("elo_states.json", _export_elo_states(predictor, as_of_d, manifest)),
         ("style_axes.json", _export_style_axes(predictor, as_of_d, manifest)),
-        ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
+        (
+            "fighter_profiles.json",
+            _export_fighter_profiles(
+                predictor, manifest, require_outcomes=require_trajectory_outcomes
+            ),
+        ),
         (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
         (ESPN_CROSSWALK_FILENAME, _export_espn_crosswalk(as_of_d, manifest, data_dir)),
         (
@@ -336,6 +356,14 @@ def main(argv: Optional[list[str]] = None) -> None:
         help="Override deploy dir (default: <repo>/../mma.ai/artifacts)",
     )
     p.add_argument(
+        "--allow-missing-trajectories",
+        action="store_true",
+        help=(
+            "Export even when ELO trajectories carry no fight outcomes. Off by default: the "
+            "resulting bundle breaks every result-dependent page on the site."
+        ),
+    )
+    p.add_argument(
         "--rebuild-elo-for-trajectories",
         action="store_true",
         help=(
@@ -357,7 +385,13 @@ def main(argv: Optional[list[str]] = None) -> None:
             print("[export_artifacts] Rebuilding ELO with record_trajectories=True ...", flush=True)
             predictor.build_elo(record_trajectories=True)
     out_dir = Path(args.out_dir)
-    written = export_all(predictor, out_dir, as_of=as_of, data_dir=Path(args.data_dir))
+    written = export_all(
+        predictor,
+        out_dir,
+        as_of=as_of,
+        data_dir=Path(args.data_dir),
+        require_trajectory_outcomes=not args.allow_missing_trajectories,
+    )
     print(f"Wrote {len(written)} JSON files under {out_dir.resolve()}", flush=True)
 
     if args.copy_to_mma_ai:
