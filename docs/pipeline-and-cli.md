@@ -263,7 +263,7 @@ The deploy repo loads **six JSON files** from **`mma.ai/artifacts/`** (no pickle
 | Script | Role |
 |--------|------|
 | [`scripts/weekly_update.py`](../scripts/weekly_update.py) | Operator path: **`refresh_data()`** by default (UFCStats scrape; **`--no-scrape`** to skip), reload **`data/`**, `build_elo`, `train_regression` (refresh or full refit), export five JSONs, optional pickle update |
-| [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json`, `reference_distributions.json`, `fight_results.json` (ESPN crosswalk from `--data-dir`) |
+| [`scripts/export_artifacts.py`](../scripts/export_artifacts.py) | Pickle to `model_weights.json`, `elo_states.json`, `style_axes.json`, `fighter_profiles.json`, `reference_distributions.json`, `fight_results.json` (ESPN crosswalk from `--data-dir`), `feature_interpretability.json` |
 | [`scripts/export_upcoming_events.py`](../scripts/export_upcoming_events.py) | `data/upcoming_cards.json` to `upcoming_events.json` |
 | [`scripts/copy_exports_to_mma_ai.py`](../scripts/copy_exports_to_mma_ai.py) | Copy folder of `*.json` into sibling `mma.ai/artifacts` |
 

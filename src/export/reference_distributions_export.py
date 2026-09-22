@@ -150,7 +150,7 @@ def collect_global_days_idle_training_corners(predictor: MMAPredictor) -> np.nda
     """
     if predictor.elo_model is None:
         raise RuntimeError("collect_global_days_idle_training_corners requires build_elo().")
-    _ensure_training_matrix(predictor)
+    ensure_training_matrix(predictor)
     included = getattr(predictor, "_train_included_fights", None)
     if not included:
         return np.array([], dtype=float)
@@ -162,7 +162,8 @@ def collect_global_days_idle_training_corners(predictor: MMAPredictor) -> np.nda
     return np.array(out, dtype=float)
 
 
-def _ensure_training_matrix(predictor: MMAPredictor) -> np.ndarray:
+def ensure_training_matrix(predictor: MMAPredictor) -> np.ndarray:
+    """Training design matrix, built on demand when the pickle did not retain it."""
     if predictor._X_train is not None and getattr(predictor, "_train_included_fights", None) is not None:
         return predictor._X_train
     predictor.train_regression(fit_model=False)
@@ -172,7 +173,7 @@ def _ensure_training_matrix(predictor: MMAPredictor) -> np.ndarray:
 
 
 def build_matchup_feature_quantile_grids(predictor: MMAPredictor) -> dict[str, Any]:
-    X = _ensure_training_matrix(predictor)
+    X = ensure_training_matrix(predictor)
     names = list(FEATURE_NAMES)
     if X.shape[1] != len(names):
         raise ValueError(f"X columns {X.shape[1]} vs FEATURE_NAMES {len(names)}")
@@ -196,7 +197,7 @@ def build_training_histogram_extras(
     *,
     n_bins: int = DEFAULT_TRAINING_BINS,
 ) -> dict[str, Any]:
-    X = _ensure_training_matrix(predictor)
+    X = ensure_training_matrix(predictor)
     cfg = predictor.config
     hsd = cfg.holdout_start_date
     feats: dict[str, Any] = {}

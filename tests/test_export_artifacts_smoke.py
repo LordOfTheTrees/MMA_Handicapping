@@ -20,6 +20,10 @@ from src.export.reference_distributions_export import (  # noqa: E402
     N_QUANTILE_POINTS,
     QUANTILE_PERCENT_LEVELS,
 )
+from src.export.feature_interpretability import (  # noqa: E402
+    FEATURE_INTERPRETABILITY_FILENAME,
+    MARGINAL_BETA_DEFINITION,
+)
 from src.export.fight_results import ID_SCHEME, UNDECIDED_METHODS  # noqa: E402
 from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
 from src.model.regression import CLASS_LABELS, N_CLASSES  # noqa: E402
@@ -71,6 +75,7 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                 "fighter_profiles",
                 "reference_distributions",
                 "fight_results",
+                "feature_interpretability",
             ):
                 p = out / f"{name}.json"
                 self.assertTrue(p.is_file(), msg=f"missing {p}")
@@ -134,6 +139,28 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                 else:
                     self.assertIn(cls, range(N_CLASSES))
                     self.assertIn(row["winner_id"], (row["fighter_a_id"], row["fighter_b_id"]))
+
+            fi = json.loads((out / FEATURE_INTERPRETABILITY_FILENAME).read_text(encoding="utf-8"))
+            self.assertEqual(fi.get("as_of_date"), d_asof.isoformat())
+            self.assertEqual(list(fi["feature_names"]), FEATURE_NAMES)
+            self.assertEqual(fi["marginal_beta_definition"], MARGINAL_BETA_DEFINITION)
+            self.assertEqual(fi["cohort"]["n_rows"], tf["n_rows"])
+            for fn in FEATURE_NAMES:
+                self.assertGreaterEqual(fi["marginal_beta"][fn], 0.0)
+                self.assertEqual(len(fi["class_coefficients"][fn]), N_CLASSES)
+                block = fi["population"]["marginal_magnitude_quantiles"][fn]
+                self.assertEqual(block["percentile_levels"], list(QUANTILE_PERCENT_LEVELS))
+                self.assertEqual(len(block["values"]), N_QUANTILE_POINTS)
+                self.assertGreaterEqual(block["values"][0], 0.0)
+            self.assertAlmostEqual(
+                sum(fi["population"]["average_share_percent"].values()), 100.0, places=6
+            )
+            self.assertGreater(len(fi["by_division"]), 0)
+            for wc, blk in fi["by_division"].items():
+                self.assertGreater(blk["n_rows"], 0, msg=f"empty division {wc}")
+                self.assertAlmostEqual(
+                    sum(blk["average_share_percent"].values()), 100.0, places=6, msg=wc
+                )
 
         print("[export smoke] OK: every artifact JSON file valid for this pickle.", flush=True, file=sys.stderr)
 

@@ -10,9 +10,11 @@ Run from repo root (defaults: ``<repo>/data/model.pkl``, ``<repo>/JSON_exports``
 Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
 ``fighter_profiles.json`` (including optional per-division ``elo_trajectories`` when the
 pickle was built with ELO trajectory recording), ``reference_distributions.json``
-(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads), and
+(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads),
 ``fight_results.json`` (winner + finishing method per settled bout, keyed by ESPN-form
-fight id via the crosswalk CSVs under ``--data-dir``).
+fight id via the crosswalk CSVs under ``--data-dir``), and
+``feature_interpretability.json`` (real per-feature marginal betas, share baselines and
+percentile reference).
 """
 from __future__ import annotations
 
@@ -32,6 +34,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.data.espn_crosswalk import CrosswalkStore  # noqa: E402
+from src.export.feature_interpretability import (  # noqa: E402
+    FEATURE_INTERPRETABILITY_FILENAME,
+    build_feature_interpretability_document,
+)
 from src.export.fight_results import (  # noqa: E402
     FIGHT_RESULTS_FILENAME,
     build_fight_results_document,
@@ -206,6 +212,14 @@ def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) 
 DEFAULT_DATA_DIR = ROOT / "data"
 
 
+def _export_feature_interpretability(
+    predictor: MMAPredictor, as_of: date, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    return build_feature_interpretability_document(
+        predictor, as_of, manifest, export_schema_version=EXPORT_SCHEMA_VERSION
+    )
+
+
 def _export_fight_results(
     predictor: MMAPredictor,
     as_of: date,
@@ -262,6 +276,10 @@ def export_all(
         ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
         (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
         (FIGHT_RESULTS_FILENAME, _export_fight_results(predictor, as_of_d, manifest, data_dir)),
+        (
+            FEATURE_INTERPRETABILITY_FILENAME,
+            _export_feature_interpretability(predictor, as_of_d, manifest),
+        ),
     ]
     written: list[Path] = []
     for name, doc in writers:
