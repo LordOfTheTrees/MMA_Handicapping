@@ -10,8 +10,10 @@
 #
 # Annual hyperparameter search stays local; not automated here.
 #
-# Schedule: GitHub cron is UTC-only. Monday 03:00 Eastern Standard Time → 08:00 UTC.
-# When the 1st is a Monday, scheduled weekly is skipped — monthly retrain owns that slot.
+# Schedule: GitHub cron is UTC-only. Sunday 12:00 UTC (08:00 Eastern Daylight Time / 07:00 EST).
+# Sunday — not Monday — so the exported snapshot includes Saturday's card (main events finish
+# ~05:00-06:00 UTC Sunday, comfortably before noon) instead of landing a day late.
+# When the 1st is a Sunday, scheduled weekly is skipped — monthly retrain owns that slot.
 
 name: Weekly model refresh
 
@@ -25,7 +27,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "0 8 * * 1"
+    - cron: "0 12 * * 0"
 
 permissions:
   contents: read
