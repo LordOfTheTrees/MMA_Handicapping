@@ -169,8 +169,8 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     if args.as_of_date:
         as_of = date.fromisoformat(args.as_of_date)
 
-    export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
-    print(f"[weekly_update refresh] Wrote 5 JSON files under {out_dir}", flush=True)
+    written = export_artifacts_mod.export_all(pred, out_dir, as_of=as_of, data_dir=data_dir)
+    print(f"[weekly_update refresh] Wrote {len(written)} JSON files under {out_dir}", flush=True)
     _maybe_export_upcoming_events(
         data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="refresh"
     )
@@ -209,8 +209,8 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     if args.as_of_date:
         as_of = date.fromisoformat(args.as_of_date)
 
-    export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
-    print(f"[weekly_update retrain] Wrote 5 JSON files under {out_dir}", flush=True)
+    written = export_artifacts_mod.export_all(pred, out_dir, as_of=as_of, data_dir=data_dir)
+    print(f"[weekly_update retrain] Wrote {len(written)} JSON files under {out_dir}", flush=True)
     _maybe_export_upcoming_events(
         data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="retrain"
     )

@@ -20,8 +20,9 @@ from src.export.reference_distributions_export import (  # noqa: E402
     N_QUANTILE_POINTS,
     QUANTILE_PERCENT_LEVELS,
 )
+from src.export.fight_results import ID_SCHEME, UNDECIDED_METHODS  # noqa: E402
 from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
-from src.model.regression import N_CLASSES  # noqa: E402
+from src.model.regression import CLASS_LABELS, N_CLASSES  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
 from tests.harness_skip import (  # noqa: E402
@@ -35,13 +36,13 @@ from tests.harness_skip import (  # noqa: E402
 def setUpModule() -> None:
     print_harness_integration_preamble(
         module="tests.test_export_artifacts_smoke",
-        description="Smoke: export_all() writes five valid JSON inference files.",
+        description="Smoke: export_all() writes every artifact JSON file, all structurally valid.",
     )
 
 
 @unittest.skipUnless(HAS_HARNESS_MODEL, HARNESS_SKIP_REASON)
 class TestExportArtifactsSmoke(unittest.TestCase):
-    def test_export_all_writes_five_valid_json_files(self) -> None:
+    def test_export_all_writes_every_artifact_json_file(self) -> None:
         from datetime import date
 
         model_path = harness_model_path()
@@ -69,6 +70,7 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                 "style_axes",
                 "fighter_profiles",
                 "reference_distributions",
+                "fight_results",
             ):
                 p = out / f"{name}.json"
                 self.assertTrue(p.is_file(), msg=f"missing {p}")
@@ -115,7 +117,25 @@ class TestExportArtifactsSmoke(unittest.TestCase):
             self.assertEqual(elo.get("as_of_date"), d_asof.isoformat())
             self.assertEqual(sx.get("as_of_date"), d_asof.isoformat())
 
-        print("[export smoke] OK: all five JSON files valid for this pickle.", flush=True, file=sys.stderr)
+            fr = json.loads((out / "fight_results.json").read_text(encoding="utf-8"))
+            self.assertEqual(fr.get("as_of_date"), d_asof.isoformat())
+            self.assertEqual(fr["id_scheme"], ID_SCHEME)
+            self.assertEqual(list(fr["class_labels"]), list(CLASS_LABELS))
+            self.assertEqual(fr["counts"]["fights_seen"], len(pred.fights))
+            self.assertEqual(fr["counts"]["exported"], len(fr["results"]))
+            for key, row in fr["results"].items():
+                self.assertEqual(row["espn_fight_id"], key)
+                self.assertTrue(key.startswith("espn_"), msg=f"non-ESPN key {key!r}")
+                self.assertEqual(key, f"espn_{row['espn_event_id']}_{row['espn_competition_id']}")
+                cls = row["outcome_class_a"]
+                if cls is None:
+                    self.assertIsNone(row["winner_id"])
+                    self.assertIn(row["result_method"], UNDECIDED_METHODS)
+                else:
+                    self.assertIn(cls, range(N_CLASSES))
+                    self.assertIn(row["winner_id"], (row["fighter_a_id"], row["fighter_b_id"]))
+
+        print("[export smoke] OK: every artifact JSON file valid for this pickle.", flush=True, file=sys.stderr)
 
 
 if __name__ == "__main__":

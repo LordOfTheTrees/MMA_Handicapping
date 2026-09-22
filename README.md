@@ -118,6 +118,7 @@ Portable **JSON** snapshots for the sibling deploy repo **`mma.ai`** (OctagonELO
 | **`JSON_exports/style_axes.json`** | Style axes snapshot |
 | **`JSON_exports/fighter_profiles.json`** | Names, reach, stance, pedigree, … |
 | **`JSON_exports/reference_distributions.json`** | mma.ai quantile grids (`matchup_features` 0…100, `division_elo`) + optional `chart_histograms` (bin/count payloads) |
+| **`JSON_exports/fight_results.json`** | Settled outcomes: `winner_id` + `result_method` + `outcome_class_a` per bout, keyed by ESPN-form fight id (`espn_<event>_<competition>`) |
 | **`JSON_exports/upcoming_events.json`** | Scheduled cards (after `export_upcoming_events.py`) |
 
 Production loads these from **`mma.ai/artifacts/`** (same filenames). Do **not** ship **`model.pkl`** or raw CSVs to the web repo.

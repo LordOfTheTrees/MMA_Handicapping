@@ -9,8 +9,10 @@ Run from repo root (defaults: ``<repo>/data/model.pkl``, ``<repo>/JSON_exports``
 
 Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
 ``fighter_profiles.json`` (including optional per-division ``elo_trajectories`` when the
-pickle was built with ELO trajectory recording), and ``reference_distributions.json``
-(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads).
+pickle was built with ELO trajectory recording), ``reference_distributions.json``
+(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads), and
+``fight_results.json`` (winner + finishing method per settled bout, keyed by ESPN-form
+fight id via the crosswalk CSVs under ``--data-dir``).
 """
 from __future__ import annotations
 
@@ -29,6 +31,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.data.espn_crosswalk import CrosswalkStore  # noqa: E402
+from src.export.fight_results import (  # noqa: E402
+    FIGHT_RESULTS_FILENAME,
+    build_fight_results_document,
+)
 from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter  # noqa: E402
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
 from src.export.reference_distributions_export import (  # noqa: E402
@@ -196,14 +203,47 @@ def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) 
     }
 
 
+DEFAULT_DATA_DIR = ROOT / "data"
+
+
+def _export_fight_results(
+    predictor: MMAPredictor,
+    as_of: date,
+    manifest: dict[str, Any],
+    data_dir: Path,
+) -> dict[str, Any]:
+    """Outcomes keyed by ESPN-form fight id; needs the crosswalk CSVs under *data_dir*."""
+    crosswalk = CrosswalkStore(Path(data_dir))
+    if not crosswalk.fight_to_competition:
+        print(
+            f"[export_artifacts] WARNING: no fight crosswalk rows under {Path(data_dir).resolve()}; "
+            f"{FIGHT_RESULTS_FILENAME} will be empty (ESPN ids are unresolvable).",
+            flush=True,
+        )
+    return build_fight_results_document(
+        predictor.fights,
+        crosswalk,
+        manifest=manifest,
+        export_schema_version=EXPORT_SCHEMA_VERSION,
+        as_of=as_of,
+    )
+
+
 def export_all(
     predictor: MMAPredictor,
     out_dir: Path,
     *,
     as_of: Optional[date] = None,
-) -> tuple[Path, Path, Path, Path, Path]:
+    data_dir: Optional[Path] = None,
+) -> tuple[Path, ...]:
+    """Write every artifact JSON under *out_dir*; returns the paths in write order.
+
+    *data_dir* supplies the ESPN crosswalk CSVs for ``fight_results.json`` and defaults to
+    ``<repo>/data``.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    data_dir = Path(data_dir) if data_dir is not None else DEFAULT_DATA_DIR
 
     as_of_d = _as_of_date(predictor, as_of)
     exported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -221,13 +261,14 @@ def export_all(
         ("style_axes.json", _export_style_axes(predictor, as_of_d, manifest)),
         ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
         (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
+        (FIGHT_RESULTS_FILENAME, _export_fight_results(predictor, as_of_d, manifest, data_dir)),
     ]
     written: list[Path] = []
     for name, doc in writers:
         path = out_dir / name
         path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         written.append(path)
-    return written[0], written[1], written[2], written[3], written[4]
+    return tuple(written)
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -243,6 +284,15 @@ def main(argv: Optional[list[str]] = None) -> None:
         type=Path,
         default=ROOT / "JSON_exports",
         help="Directory for the five JSON files (default: <repo>/JSON_exports)",
+    )
+    p.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help=(
+            "Directory holding the ESPN crosswalk CSVs used to key fight_results.json "
+            f"(default: {DEFAULT_DATA_DIR})"
+        ),
     )
     p.add_argument(
         "--as-of-date",
@@ -284,8 +334,8 @@ def main(argv: Optional[list[str]] = None) -> None:
             print("[export_artifacts] Rebuilding ELO with record_trajectories=True ...", flush=True)
             predictor.build_elo(record_trajectories=True)
     out_dir = Path(args.out_dir)
-    export_all(predictor, out_dir, as_of=as_of)
-    print(f"Wrote 5 JSON files under {out_dir.resolve()}", flush=True)
+    written = export_all(predictor, out_dir, as_of=as_of, data_dir=Path(args.data_dir))
+    print(f"Wrote {len(written)} JSON files under {out_dir.resolve()}", flush=True)
 
     if args.copy_to_mma_ai:
         _scripts = Path(__file__).resolve().parent

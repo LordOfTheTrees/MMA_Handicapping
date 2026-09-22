@@ -89,6 +89,13 @@ class CrosswalkStore:
             for espn_aid in sorted(self._fighter_rows.keys(), key=lambda a: self._fighter_rows[a].get("ufcstats_fighter_id", "")):
                 w.writerow(self._fighter_rows[espn_aid])
 
+    def espn_event_id_for_competition(self, espn_competition_id: str) -> Optional[str]:
+        """ESPN event id recorded alongside *espn_competition_id*, or ``None`` if unknown."""
+        row = self._fight_rows.get((espn_competition_id or "").strip())
+        if not row:
+            return None
+        return (row.get("espn_event_id") or "").strip() or None
+
     def record_fight(
         self,
         *,
