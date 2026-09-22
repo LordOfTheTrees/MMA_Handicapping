@@ -24,9 +24,9 @@ from src.export.feature_interpretability import (  # noqa: E402
     FEATURE_INTERPRETABILITY_FILENAME,
     MARGINAL_BETA_DEFINITION,
 )
-from src.export.fight_results import ID_SCHEME, UNDECIDED_METHODS  # noqa: E402
+from src.export.espn_crosswalk_export import ID_SCHEME  # noqa: E402
 from src.matchup.interactions import FEATURE_NAMES  # noqa: E402
-from src.model.regression import CLASS_LABELS, N_CLASSES  # noqa: E402
+from src.model.regression import N_CLASSES  # noqa: E402
 from src.pipeline import MMAPredictor  # noqa: E402
 
 from tests.harness_skip import (  # noqa: E402
@@ -74,7 +74,7 @@ class TestExportArtifactsSmoke(unittest.TestCase):
                 "style_axes",
                 "fighter_profiles",
                 "reference_distributions",
-                "fight_results",
+                "espn_crosswalk",
                 "feature_interpretability",
             ):
                 p = out / f"{name}.json"
@@ -122,23 +122,34 @@ class TestExportArtifactsSmoke(unittest.TestCase):
             self.assertEqual(elo.get("as_of_date"), d_asof.isoformat())
             self.assertEqual(sx.get("as_of_date"), d_asof.isoformat())
 
-            fr = json.loads((out / "fight_results.json").read_text(encoding="utf-8"))
-            self.assertEqual(fr.get("as_of_date"), d_asof.isoformat())
-            self.assertEqual(fr["id_scheme"], ID_SCHEME)
-            self.assertEqual(list(fr["class_labels"]), list(CLASS_LABELS))
-            self.assertEqual(fr["counts"]["fights_seen"], len(pred.fights))
-            self.assertEqual(fr["counts"]["exported"], len(fr["results"]))
-            for key, row in fr["results"].items():
-                self.assertEqual(row["espn_fight_id"], key)
-                self.assertTrue(key.startswith("espn_"), msg=f"non-ESPN key {key!r}")
-                self.assertEqual(key, f"espn_{row['espn_event_id']}_{row['espn_competition_id']}")
-                cls = row["outcome_class_a"]
+            cw = json.loads((out / "espn_crosswalk.json").read_text(encoding="utf-8"))
+            self.assertEqual(cw.get("as_of_date"), d_asof.isoformat())
+            self.assertEqual(cw["id_scheme"], ID_SCHEME)
+            self.assertEqual(cw["counts"]["fights"], len(cw["fights"]))
+            self.assertEqual(cw["counts"]["fighters"], len(cw["fighters"]))
+            for internal_id, espn_id in cw["fights"].items():
+                self.assertTrue(espn_id.startswith("espn_"), msg=f"bad espn id {espn_id!r}")
+                self.assertEqual(len(espn_id.split("_")), 3, msg=f"bad espn id {espn_id!r}")
+                self.assertTrue(internal_id, msg="blank internal fight id")
+
+            profiles = json.loads((out / "fighter_profiles.json").read_text(encoding="utf-8"))["profiles"]
+            trajectories = [
+                (fid, point)
+                for fid, prof in profiles.items()
+                for series in prof.get("elo_trajectories", {}).values()
+                for point in series
+            ]
+            self.assertGreater(len(trajectories), 0, msg="no elo_trajectories in this pickle")
+            outcomes = 0
+            for fid, point in trajectories:
+                cls = point["outcome_class"]
                 if cls is None:
-                    self.assertIsNone(row["winner_id"])
-                    self.assertIn(row["result_method"], UNDECIDED_METHODS)
-                else:
-                    self.assertIn(cls, range(N_CLASSES))
-                    self.assertIn(row["winner_id"], (row["fighter_a_id"], row["fighter_b_id"]))
+                    continue
+                outcomes += 1
+                self.assertIn(cls, range(N_CLASSES))
+                self.assertIsNotNone(point["result_method"])
+                self.assertIsNotNone(point["fight_id"])
+            self.assertGreater(outcomes, 0, msg="no trajectory point carried an outcome")
 
             fi = json.loads((out / FEATURE_INTERPRETABILITY_FILENAME).read_text(encoding="utf-8"))
             self.assertEqual(fi.get("as_of_date"), d_asof.isoformat())

@@ -11,10 +11,13 @@ Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
 ``fighter_profiles.json`` (including optional per-division ``elo_trajectories`` when the
 pickle was built with ELO trajectory recording), ``reference_distributions.json``
 (quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads),
-``fight_results.json`` (winner + finishing method per settled bout, keyed by ESPN-form
-fight id via the crosswalk CSVs under ``--data-dir``), and
-``feature_interpretability.json`` (real per-feature marginal betas, share baselines and
-percentile reference).
+``espn_crosswalk.json`` (internal id -> ESPN id maps, from the crosswalk CSVs under
+``--data-dir``), and ``feature_interpretability.json`` (real per-feature marginal betas,
+share baselines and percentile reference).
+
+Fight outcomes ride on the per-fighter points inside ``fighter_profiles.json``
+(``elo_trajectories``: ``fight_id``, ``result_method``, ``outcome_class``), which requires a
+pickle built with ``record_trajectories=True`` — see ``--rebuild-elo-for-trajectories``.
 """
 from __future__ import annotations
 
@@ -38,9 +41,9 @@ from src.export.feature_interpretability import (  # noqa: E402
     FEATURE_INTERPRETABILITY_FILENAME,
     build_feature_interpretability_document,
 )
-from src.export.fight_results import (  # noqa: E402
-    FIGHT_RESULTS_FILENAME,
-    build_fight_results_document,
+from src.export.espn_crosswalk_export import (  # noqa: E402
+    ESPN_CROSSWALK_FILENAME,
+    build_espn_crosswalk_document,
 )
 from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter  # noqa: E402
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
@@ -195,6 +198,14 @@ def _export_reference_distributions(
 def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) -> dict[str, Any]:
     em = predictor.elo_model
     by_fid = nested_elo_trajectories_by_fighter(em) if em is not None else {}
+    if not by_fid:
+        print(
+            "[export_artifacts] WARNING: no ELO trajectories recorded, so fighter_profiles.json "
+            "ships no elo_trajectories and therefore NO FIGHT OUTCOMES (fight_id / result_method "
+            "/ outcome_class). Rebuild with record_trajectories=True — see "
+            "--rebuild-elo-for-trajectories.",
+            flush=True,
+        )
     profs: dict[str, Any] = {}
     for fid, prof in predictor.profiles.items():
         row = _json_sanitize(dataclasses.asdict(prof))
@@ -220,22 +231,16 @@ def _export_feature_interpretability(
     )
 
 
-def _export_fight_results(
-    predictor: MMAPredictor,
-    as_of: date,
-    manifest: dict[str, Any],
-    data_dir: Path,
-) -> dict[str, Any]:
-    """Outcomes keyed by ESPN-form fight id; needs the crosswalk CSVs under *data_dir*."""
+def _export_espn_crosswalk(as_of: date, manifest: dict[str, Any], data_dir: Path) -> dict[str, Any]:
+    """Internal id -> ESPN id maps read from the crosswalk CSVs under *data_dir*."""
     crosswalk = CrosswalkStore(Path(data_dir))
     if not crosswalk.fight_to_competition:
         print(
             f"[export_artifacts] WARNING: no fight crosswalk rows under {Path(data_dir).resolve()}; "
-            f"{FIGHT_RESULTS_FILENAME} will be empty (ESPN ids are unresolvable).",
+            f"{ESPN_CROSSWALK_FILENAME} will be empty (ESPN ids are unresolvable).",
             flush=True,
         )
-    return build_fight_results_document(
-        predictor.fights,
+    return build_espn_crosswalk_document(
         crosswalk,
         manifest=manifest,
         export_schema_version=EXPORT_SCHEMA_VERSION,
@@ -252,7 +257,7 @@ def export_all(
 ) -> tuple[Path, ...]:
     """Write every artifact JSON under *out_dir*; returns the paths in write order.
 
-    *data_dir* supplies the ESPN crosswalk CSVs for ``fight_results.json`` and defaults to
+    *data_dir* supplies the ESPN crosswalk CSVs for ``espn_crosswalk.json`` and defaults to
     ``<repo>/data``.
     """
     out_dir = Path(out_dir)
@@ -275,7 +280,7 @@ def export_all(
         ("style_axes.json", _export_style_axes(predictor, as_of_d, manifest)),
         ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
         (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
-        (FIGHT_RESULTS_FILENAME, _export_fight_results(predictor, as_of_d, manifest, data_dir)),
+        (ESPN_CROSSWALK_FILENAME, _export_espn_crosswalk(as_of_d, manifest, data_dir)),
         (
             FEATURE_INTERPRETABILITY_FILENAME,
             _export_feature_interpretability(predictor, as_of_d, manifest),
@@ -308,7 +313,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         type=Path,
         default=DEFAULT_DATA_DIR,
         help=(
-            "Directory holding the ESPN crosswalk CSVs used to key fight_results.json "
+            "Directory holding the ESPN crosswalk CSVs exported as espn_crosswalk.json "
             f"(default: {DEFAULT_DATA_DIR})"
         ),
     )
