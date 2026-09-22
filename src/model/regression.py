@@ -166,6 +166,17 @@ _OUTCOME_TO_CLASS: Dict[Tuple[bool, ResultMethod], int] = {
 # Outcome encoding
 # ---------------------------------------------------------------------------
 
+def outcome_class_for(fighter_won: bool, method: ResultMethod) -> Optional[int]:
+    """
+    Class index (0–5) for a decisive outcome, or ``None`` when *method* has no class.
+
+    The single place the ``(won, method) -> class`` encoding is read. Callers holding a bout's
+    outcome without a :class:`FightRecord` — notably the exported ELO trajectories — use this
+    instead of restating the mapping.
+    """
+    return _OUTCOME_TO_CLASS.get((fighter_won, method))
+
+
 def encode_outcome(fight: FightRecord, fighter_id: str) -> Optional[int]:
     """
     Encode a fight result as a class index (0–5) from fighter_id's perspective.
@@ -181,7 +192,7 @@ def encode_outcome(fight: FightRecord, fighter_id: str) -> Optional[int]:
     else:
         return None
 
-    return _OUTCOME_TO_CLASS.get((won, fight.result_method))
+    return outcome_class_for(won, fight.result_method)
 
 
 # ---------------------------------------------------------------------------

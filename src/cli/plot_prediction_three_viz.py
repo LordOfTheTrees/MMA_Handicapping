@@ -34,6 +34,7 @@ from matplotlib.text import Text
 
 from src.cli.common import resolve_date, resolve_weight_class
 from src.data.schema import PredictionResult
+from src.model.regression import CLASS_LABELS
 from src.pipeline import MMAPredictor
 
 
@@ -83,6 +84,26 @@ def _short_title(s: str, n: int = 42) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+#: Abbreviations for the long method names carried by :data:`CLASS_LABELS`.
+_SHORT_METHOD: dict[str, str] = {"KO/TKO": "KO/TKO", "Submission": "Sub", "Decision": "Dec"}
+
+
+def _class_method(outcome_index: int) -> str:
+    """
+    Finishing method for class index 0..5, read straight off :data:`CLASS_LABELS`.
+
+    The win side (0-2) and the lose side (3-5) do **not** share a method order — 3-5 are
+    Decision, KO/TKO, Submission — so a single tuple indexed by ``outcome_index % 3`` silently
+    rotates every corner-B label. Derive from ``CLASS_LABELS`` instead of restating the order.
+    """
+    return CLASS_LABELS[outcome_index].split(" by ", 1)[1]
+
+
+def _class_is_corner_a(outcome_index: int) -> bool:
+    """True when class index 0..5 is a corner-A win (``Win by ...``), False for a corner-B win."""
+    return CLASS_LABELS[outcome_index].startswith("Win by ")
+
+
 def _outcome_sentence(corner_a_name: str, corner_b_name: str, outcome_index: int) -> str:
     """
     Label for stacked-bar segment order / probability index 0..5.
@@ -90,11 +111,8 @@ def _outcome_sentence(corner_a_name: str, corner_b_name: str, outcome_index: int
     Indices 0-2 are corner-A wins by KO/TKO, Submission, Decision.
     Indices 3-5 are corner-B wins matching lose_decision, lose_ko_tko, lose_submission.
     """
-    method_a = ("KO/TKO", "Submission", "Decision")
-    if outcome_index < 3:
-        return f"{corner_a_name} by {method_a[outcome_index]}"
-    j = outcome_index - 3
-    return f"{corner_b_name} by {method_a[j]}"
+    who = corner_a_name if _class_is_corner_a(outcome_index) else corner_b_name
+    return f"{who} by {_class_method(outcome_index)}"
 
 
 def _fighters_no_prior_in_wc(
@@ -146,8 +164,8 @@ def _last_name(display: str) -> str:
 
 def _thin_ci_caption(corner_a_name: str, corner_b_name: str, outcome_index: int, lo_pct: int, hi_pct: int) -> str:
     """Short line for marginal CI when a segment is visually tiny (shown off-bars)."""
-    m = ("KO/TKO", "Sub", "Dec")[outcome_index % 3]
-    who = _last_name(corner_a_name if outcome_index < 3 else corner_b_name)
+    m = _SHORT_METHOD[_class_method(outcome_index)]
+    who = _last_name(corner_a_name if _class_is_corner_a(outcome_index) else corner_b_name)
     return f"{who} · {m}  [{lo_pct}–{hi_pct}%]"
 
 

@@ -12,7 +12,7 @@ Architecture responsibilities (Section 4):
 from bisect import bisect_left
 from collections import defaultdict
 from datetime import date
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 from ..config import ELOConfig
 from ..data.schema import (
@@ -20,6 +20,38 @@ from ..data.schema import (
     ResultMethod, WeightClass,
 )
 from .kalman import KalmanState, kalman_predict, kalman_update
+
+
+class TrajectoryPoint(NamedTuple):
+    """
+    One post-fight ELO point for a single fighter in a single division.
+
+    Carries the bout's raw outcome alongside the rating so the trajectory is a complete
+    per-fighter fight log, not just a rating curve: ``winner_id`` and ``result_method`` come
+    straight off the :class:`~src.data.schema.FightRecord` being processed. The class index the
+    regression uses is deliberately **not** stored here — deriving it is the model layer's job
+    (see :func:`~src.model.regression.outcome_class_for`), and ELO must not depend on it.
+
+    ``winner_id`` is ``None`` for a draw, no contest or DQ, matching ``FightRecord``.
+
+    The first three fields keep their historical positions, so consumers that index ``p[0]``,
+    ``p[1]``, ``p[2]`` (the plotting helpers) are unaffected by the added fields.
+    """
+
+    fight_date: date
+    elo: float
+    opponent_fighter_id: str = ""
+    fight_id: str = ""
+    winner_id: Optional[str] = None
+    result_method: Optional[ResultMethod] = None
+
+
+def _as_trajectory_point(p: Any) -> TrajectoryPoint:
+    """Widen a legacy ``(date, elo, opponent)`` tuple from a pre-outcome pickle."""
+    if isinstance(p, TrajectoryPoint):
+        return p
+    seq: Sequence[Any] = p
+    return TrajectoryPoint(seq[0], float(seq[1]), seq[2] if len(seq) > 2 else "")
 
 
 # ---------------------------------------------------------------------------
@@ -105,8 +137,8 @@ class ELOModel:
         self._last_fight_global: Dict[str, Optional[date]] = defaultdict(_defaultdict_none)
         self._n_fights: Dict[Tuple[str, WeightClass], int] = defaultdict(int)
         self._best_tier: Dict[Tuple[str, WeightClass], DataTier] = {}
-        # Optional: (fighter_id, wc) -> [(fight_date, elo_after_fight, opponent_id), ...]
-        self._trajectories: Dict[Tuple[str, WeightClass], List[Tuple[date, float, str]]] = {}
+        # Optional: (fighter_id, wc) -> [TrajectoryPoint, ...] (post-fight ELO + bout outcome)
+        self._trajectories: Dict[Tuple[str, WeightClass], List[TrajectoryPoint]] = {}
         self._record_trajectories: bool = False
         # --- Point-in-time index (always maintained; correctness, not diagnostics) ---
         # Post-fight state snapshots per key, chronological. ``_history_dates`` mirrors
@@ -242,9 +274,9 @@ class ELOModel:
 
         If *progress_every* > 0, print a line every N fights (and at start/end).
 
-        If *record_trajectories* is True, after each fight append
-        ``(fight_date, elo, opponent_fighter_id)`` for both corners in that bout's
-        weight class — see :meth:`get_trajectory` (Kalman mean after the update).
+        If *record_trajectories* is True, after each fight append a :class:`TrajectoryPoint`
+        (post-fight ELO plus that bout's id, opponent and outcome) for both corners in that
+        bout's weight class — see :meth:`get_trajectory`.
         """
         self._record_trajectories = record_trajectories
         if record_trajectories:
@@ -336,18 +368,28 @@ class ELOModel:
                 continue
             if key not in self._trajectories:
                 self._trajectories[key] = []
-            self._trajectories[key].append((fight.fight_date, float(st.value), opponent_id or ""))
+            self._trajectories[key].append(
+                TrajectoryPoint(
+                    fight_date=fight.fight_date,
+                    elo=float(st.value),
+                    opponent_fighter_id=opponent_id or "",
+                    fight_id=fight.fight_id or "",
+                    winner_id=fight.winner_id,
+                    result_method=fight.result_method,
+                )
+            )
 
-    def get_trajectory(self, fighter_id: str, wc: WeightClass) -> List[Tuple[date, float, str]]:
+    def get_trajectory(self, fighter_id: str, wc: WeightClass) -> List[TrajectoryPoint]:
         """
-        Return chronological points for one fighter in one division.
+        Return chronological :class:`TrajectoryPoint` records for one fighter in one division.
 
         Populated only if the last :meth:`process_fights` used ``record_trajectories=True``.
-        Each tuple is ``(fight_date, elo_after_fight, opponent_fighter_id)`` — ELO is the Kalman
-        mean immediately after that fight is processed.
+        ``elo`` is the Kalman mean immediately after that fight is processed; the outcome fields
+        describe the bout that produced it. Points from a pickle predating outcome recording are
+        widened in place, so those fields read as empty rather than raising.
         """
         key = self._key(fighter_id, wc)
-        return list(self._trajectories.get(key, ()))
+        return [_as_trajectory_point(p) for p in self._trajectories.get(key, ())]
 
     def iter_trajectory_keys(self) -> Iterator[Tuple[str, WeightClass]]:
         """Yield (fighter_id, weight_class) keys that have recorded trajectory points."""

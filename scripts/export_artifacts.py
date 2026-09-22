@@ -9,8 +9,15 @@ Run from repo root (defaults: ``<repo>/data/model.pkl``, ``<repo>/JSON_exports``
 
 Emits ``model_weights.json``, ``elo_states.json``, ``style_axes.json``,
 ``fighter_profiles.json`` (including optional per-division ``elo_trajectories`` when the
-pickle was built with ELO trajectory recording), and ``reference_distributions.json``
-(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads).
+pickle was built with ELO trajectory recording), ``reference_distributions.json``
+(quantile grids for ``mma.ai`` + optional ``chart_histograms`` bin payloads),
+``espn_crosswalk.json`` (internal id -> ESPN id maps, from the crosswalk CSVs under
+``--data-dir``), and ``feature_interpretability.json`` (real per-feature marginal betas,
+share baselines and percentile reference).
+
+Fight outcomes ride on the per-fighter points inside ``fighter_profiles.json``
+(``elo_trajectories``: ``fight_id``, ``result_method``, ``outcome_class``), which requires a
+pickle built with ``record_trajectories=True`` — see ``--rebuild-elo-for-trajectories``.
 """
 from __future__ import annotations
 
@@ -29,7 +36,19 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.export.fighter_elo_trajectories import nested_elo_trajectories_by_fighter  # noqa: E402
+from src.data.espn_crosswalk import CrosswalkStore  # noqa: E402
+from src.export.feature_interpretability import (  # noqa: E402
+    FEATURE_INTERPRETABILITY_FILENAME,
+    build_feature_interpretability_document,
+)
+from src.export.espn_crosswalk_export import (  # noqa: E402
+    ESPN_CROSSWALK_FILENAME,
+    build_espn_crosswalk_document,
+)
+from src.export.fighter_elo_trajectories import (  # noqa: E402
+    assert_trajectories_carry_outcomes,
+    nested_elo_trajectories_by_fighter,
+)
 from src.export.git_meta import git_sha_training_repo  # noqa: E402
 from src.export.reference_distributions_export import (  # noqa: E402
     REFERENCE_DISTRIBUTIONS_FILENAME,
@@ -179,9 +198,22 @@ def _export_reference_distributions(
     )
 
 
-def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) -> dict[str, Any]:
+def _export_fighter_profiles(
+    predictor: MMAPredictor,
+    manifest: dict[str, Any],
+    *,
+    require_outcomes: bool = True,
+) -> dict[str, Any]:
     em = predictor.elo_model
     by_fid = nested_elo_trajectories_by_fighter(em) if em is not None else {}
+    if require_outcomes:
+        assert_trajectories_carry_outcomes(by_fid)
+    elif not by_fid:
+        print(
+            "[export_artifacts] WARNING: exporting without ELO trajectories "
+            "(--allow-missing-trajectories); fighter_profiles.json ships NO FIGHT OUTCOMES.",
+            flush=True,
+        )
     profs: dict[str, Any] = {}
     for fid, prof in predictor.profiles.items():
         row = _json_sanitize(dataclasses.asdict(prof))
@@ -196,14 +228,56 @@ def _export_fighter_profiles(predictor: MMAPredictor, manifest: dict[str, Any]) 
     }
 
 
+DEFAULT_DATA_DIR = ROOT / "data"
+
+
+def _export_feature_interpretability(
+    predictor: MMAPredictor, as_of: date, manifest: dict[str, Any]
+) -> dict[str, Any]:
+    return build_feature_interpretability_document(
+        predictor, as_of, manifest, export_schema_version=EXPORT_SCHEMA_VERSION
+    )
+
+
+def _export_espn_crosswalk(as_of: date, manifest: dict[str, Any], data_dir: Path) -> dict[str, Any]:
+    """Internal id -> ESPN id maps read from the crosswalk CSVs under *data_dir*."""
+    crosswalk = CrosswalkStore(Path(data_dir))
+    if not crosswalk.fight_to_competition:
+        print(
+            f"[export_artifacts] WARNING: no fight crosswalk rows under {Path(data_dir).resolve()}; "
+            f"{ESPN_CROSSWALK_FILENAME} will be empty (ESPN ids are unresolvable).",
+            flush=True,
+        )
+    return build_espn_crosswalk_document(
+        crosswalk,
+        manifest=manifest,
+        export_schema_version=EXPORT_SCHEMA_VERSION,
+        as_of=as_of,
+    )
+
+
 def export_all(
     predictor: MMAPredictor,
     out_dir: Path,
     *,
     as_of: Optional[date] = None,
-) -> tuple[Path, Path, Path, Path, Path]:
+    data_dir: Optional[Path] = None,
+    require_trajectory_outcomes: bool = True,
+) -> tuple[Path, ...]:
+    """Write every artifact JSON under *out_dir*; returns the paths in write order.
+
+    *data_dir* supplies the ESPN crosswalk CSVs for ``espn_crosswalk.json`` and defaults to
+    ``<repo>/data``.
+
+    Fight outcomes ship only on ``fighter_profiles.elo_trajectories``, so by default an export
+    that would omit them raises
+    :class:`~src.export.fighter_elo_trajectories.MissingTrajectoryOutcomes` rather than writing
+    a bundle that breaks every result-dependent page. Pass *require_trajectory_outcomes* as
+    ``False`` to write a knowingly incomplete bundle.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    data_dir = Path(data_dir) if data_dir is not None else DEFAULT_DATA_DIR
 
     as_of_d = _as_of_date(predictor, as_of)
     exported_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -219,15 +293,25 @@ def export_all(
         ("model_weights.json", _export_model_weights(predictor, manifest)),
         ("elo_states.json", _export_elo_states(predictor, as_of_d, manifest)),
         ("style_axes.json", _export_style_axes(predictor, as_of_d, manifest)),
-        ("fighter_profiles.json", _export_fighter_profiles(predictor, manifest)),
+        (
+            "fighter_profiles.json",
+            _export_fighter_profiles(
+                predictor, manifest, require_outcomes=require_trajectory_outcomes
+            ),
+        ),
         (REFERENCE_DISTRIBUTIONS_FILENAME, _export_reference_distributions(predictor, as_of_d, manifest)),
+        (ESPN_CROSSWALK_FILENAME, _export_espn_crosswalk(as_of_d, manifest, data_dir)),
+        (
+            FEATURE_INTERPRETABILITY_FILENAME,
+            _export_feature_interpretability(predictor, as_of_d, manifest),
+        ),
     ]
     written: list[Path] = []
     for name, doc in writers:
         path = out_dir / name
         path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
         written.append(path)
-    return written[0], written[1], written[2], written[3], written[4]
+    return tuple(written)
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -243,6 +327,15 @@ def main(argv: Optional[list[str]] = None) -> None:
         type=Path,
         default=ROOT / "JSON_exports",
         help="Directory for the five JSON files (default: <repo>/JSON_exports)",
+    )
+    p.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help=(
+            "Directory holding the ESPN crosswalk CSVs exported as espn_crosswalk.json "
+            f"(default: {DEFAULT_DATA_DIR})"
+        ),
     )
     p.add_argument(
         "--as-of-date",
@@ -261,6 +354,14 @@ def main(argv: Optional[list[str]] = None) -> None:
         default=None,
         metavar="PATH",
         help="Override deploy dir (default: <repo>/../mma.ai/artifacts)",
+    )
+    p.add_argument(
+        "--allow-missing-trajectories",
+        action="store_true",
+        help=(
+            "Export even when ELO trajectories carry no fight outcomes. Off by default: the "
+            "resulting bundle breaks every result-dependent page on the site."
+        ),
     )
     p.add_argument(
         "--rebuild-elo-for-trajectories",
@@ -284,8 +385,14 @@ def main(argv: Optional[list[str]] = None) -> None:
             print("[export_artifacts] Rebuilding ELO with record_trajectories=True ...", flush=True)
             predictor.build_elo(record_trajectories=True)
     out_dir = Path(args.out_dir)
-    export_all(predictor, out_dir, as_of=as_of)
-    print(f"Wrote 5 JSON files under {out_dir.resolve()}", flush=True)
+    written = export_all(
+        predictor,
+        out_dir,
+        as_of=as_of,
+        data_dir=Path(args.data_dir),
+        require_trajectory_outcomes=not args.allow_missing_trajectories,
+    )
+    print(f"Wrote {len(written)} JSON files under {out_dir.resolve()}", flush=True)
 
     if args.copy_to_mma_ai:
         _scripts = Path(__file__).resolve().parent

@@ -5,7 +5,9 @@ Weekly pipeline: reload data, rebuild ELO, refresh or refit regression state, ex
 **refresh (steps 1–5)** — Emit the five ``export_artifacts`` JSON files after reloading CSVs,
 ``build_elo()``, and ``train_regression(fit_model=False)`` so ``elo_states``, ``style_axes``,
 ``fighter_profiles`` include **elo_trajectories** when ``build_elo(..., record_trajectories=True)``
-(this is enabled by default; use ``--no-record-elo-trajectories`` to skip).
+(enabled by default). Those points carry the fight outcomes, so skipping them with
+``--no-record-elo-trajectories`` **fails the export** unless ``--allow-missing-trajectories``
+is passed as well.
 
 **retrain (steps 1–6)** — Same data + ELO path, then full ``train_regression()`` (new **W**,
 bootstrap, artifact audit), saves the pickle, then exports all five JSONs. Step **6** is the
@@ -169,8 +171,14 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     if args.as_of_date:
         as_of = date.fromisoformat(args.as_of_date)
 
-    export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
-    print(f"[weekly_update refresh] Wrote 5 JSON files under {out_dir}", flush=True)
+    written = export_artifacts_mod.export_all(
+        pred,
+        out_dir,
+        as_of=as_of,
+        data_dir=data_dir,
+        require_trajectory_outcomes=not args.allow_missing_trajectories,
+    )
+    print(f"[weekly_update refresh] Wrote {len(written)} JSON files under {out_dir}", flush=True)
     _maybe_export_upcoming_events(
         data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="refresh"
     )
@@ -209,8 +217,14 @@ def cmd_retrain(args: argparse.Namespace) -> int:
     if args.as_of_date:
         as_of = date.fromisoformat(args.as_of_date)
 
-    export_artifacts_mod.export_all(pred, out_dir, as_of=as_of)
-    print(f"[weekly_update retrain] Wrote 5 JSON files under {out_dir}", flush=True)
+    written = export_artifacts_mod.export_all(
+        pred,
+        out_dir,
+        as_of=as_of,
+        data_dir=data_dir,
+        require_trajectory_outcomes=not args.allow_missing_trajectories,
+    )
+    print(f"[weekly_update retrain] Wrote {len(written)} JSON files under {out_dir}", flush=True)
     _maybe_export_upcoming_events(
         data_dir, out_dir, ufcstats_scraped=ufcstats_scraped, espn_scraped=espn_scraped, label="retrain"
     )
@@ -244,7 +258,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--record-elo-trajectories",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Record per-fight ELO points for fighter_profiles elo_trajectories (default: true)",
+        help=(
+            "Record per-fight ELO points for fighter_profiles elo_trajectories (default: true). "
+            "These points carry the fight outcomes, so --no-record-elo-trajectories fails the "
+            "export unless --allow-missing-trajectories is also passed."
+        ),
+    )
+    common.add_argument(
+        "--allow-missing-trajectories",
+        action="store_true",
+        help=(
+            "Export even when ELO trajectories carry no fight outcomes. Off by default: the "
+            "resulting bundle breaks every result-dependent page on the site."
+        ),
     )
     common.add_argument(
         "--no-scrape",
