@@ -97,3 +97,5 @@ python main.py eval-holdout --model-path ./data/Saved_Runs/phase3_baseline.pkl
 | Expected CSV filenames / loader behavior | [`src/pipeline.py`](src/pipeline.py) (`load_data`; tries `ufcstats_fights.csv` then legacy `tier1_ufcstats.csv`) |
 
 When you finish a chunk, mirror progress in [`docs/todo.md`](docs/todo.md).
+
+Last keepalive touch: 2026-11-16.
