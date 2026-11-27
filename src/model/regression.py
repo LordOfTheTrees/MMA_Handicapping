@@ -214,6 +214,21 @@ def _log_softmax(logits: np.ndarray) -> np.ndarray:
 # Robust Huber loss
 # ---------------------------------------------------------------------------
 
+def column_scales(X: np.ndarray) -> np.ndarray:
+    """
+    Per-column divisor for scale normalisation: the column standard deviation.
+
+    A column with no spread (a constant, e.g. ``stance_mismatch`` on a slice where no
+    bout is orthodox-vs-southpaw) gets a divisor of 1.0. Dividing by ~0 would blow the
+    column up and then contract its coefficient by the same factor on the way back —
+    numerically destructive for a column that carries no information anyway.
+    """
+    scales = np.asarray(np.std(X, axis=0), dtype=np.float64)
+    scales[~np.isfinite(scales)] = 1.0
+    scales[scales <= 1e-12] = 1.0
+    return scales
+
+
 def _robust_nll_and_grad(
     params: np.ndarray,
     X: np.ndarray,
@@ -274,6 +289,21 @@ def _robust_nll_and_grad(
 # Model class
 # ---------------------------------------------------------------------------
 
+class ConvergenceError(RuntimeError):
+    """
+    L-BFGS-B stopped without converging on a fit that was required to converge.
+
+    Raised only when ``fit(strict=True)``. The unattended retrain workflows use the strict
+    path so a failed optimisation stops the pipeline instead of exporting the coefficients
+    the optimiser happened to be holding when it gave up.
+    """
+
+    def __init__(self, message: str, *, n_iter: int, final_loss: float) -> None:
+        super().__init__(message)
+        self.n_iter = n_iter
+        self.final_loss = final_loss
+
+
 class MultinomialLogisticModel:
     """
     6-class multinomial logistic regression with a robust Huber loss.
@@ -294,6 +324,31 @@ class MultinomialLogisticModel:
         self.l2_lambda = l2_lambda
         self.W: Optional[np.ndarray] = None   # (N_CLASSES, n_features)
         self.is_fitted = False
+        #: Whether the last ``fit`` reached an L-BFGS-B success status. ``None`` before fitting.
+        self.converged: Optional[bool] = None
+        #: scipy's termination message from the last ``fit``.
+        self.convergence_message: str = ""
+        #: Iterations used and final robust NLL from the last ``fit``.
+        self.n_iter: Optional[int] = None
+        self.final_loss: Optional[float] = None
+        #: Per-column divisor used during the last ``fit`` when ``standardize=True``.
+        #: ``None`` means the fit was on raw columns. ``W`` is in raw-feature space
+        #: either way — this is a record of how the fit got there, not a transform
+        #: callers need to apply.
+        self.feature_scale: Optional[np.ndarray] = None
+
+    def __setstate__(self, state: dict) -> None:
+        """Pickle migration: models trained before convergence was recorded lack those fields."""
+        self.__dict__.update(state)
+        for name, default in (
+            ("converged", None),
+            ("convergence_message", ""),
+            ("n_iter", None),
+            ("final_loss", None),
+            ("feature_scale", None),
+        ):
+            if name not in self.__dict__:
+                setattr(self, name, default)
 
     # ------------------------------------------------------------------
     # Fitting
@@ -308,6 +363,8 @@ class MultinomialLogisticModel:
         verbose: bool = False,
         ftol: float = 1e-12,
         gtol: float = 1e-7,
+        strict: bool = False,
+        standardize: bool = False,
     ) -> "MultinomialLogisticModel":
         """
         Fit coefficients using L-BFGS-B.
@@ -316,17 +373,55 @@ class MultinomialLogisticModel:
         y : (n_samples,)             int in [0, N_CLASSES)
         ftol, gtol : passed to ``scipy.optimize.minimize`` (L-BFGS-B). Tuning / pilot
             can relax these; defaults match historical behavior.
+        strict : raise :class:`ConvergenceError` when L-BFGS-B reports failure instead of
+            keeping whatever iterate it stopped on. Callers that ship the coefficients —
+            ``MMAPredictor.train_regression`` and therefore the retrain workflows — pass
+            True. Bootstrap resampling leaves it False: individual draws are allowed to
+            struggle, and the caller counts them rather than aborting the whole run.
+        standardize : optimise over ``X / column_std`` rather than raw ``X``, then divide
+            the result back so ``self.W`` is in raw-feature space regardless. This is a
+            pure reconditioning — same model, same predictions modulo the regulariser —
+            that makes ``l2_lambda`` scale-free and cuts the Hessian condition number.
+
+            Only the scale is normalised. The model has no intercept
+            (``logits = X @ W.T``), so mean-centring would move a per-class bias into the
+            fit that there is nowhere to put; ``W_raw = W_scaled / scale`` is exact,
+            whereas un-centring is not. See ``ModelConfig.standardize_features``.
+
+            Because the L2 term then acts on scaled coefficients, a tuned ``l2_lambda``
+            does **not** carry over. Re-tune before enabling this in production.
+
+        Regardless of *strict*, the outcome is recorded on the model (``converged``,
+        ``convergence_message``, ``n_iter``, ``final_loss``) so callers and the artifact
+        export can report it. A non-converged fit is never silently indistinguishable
+        from a converged one.
+
+        Raises:
+            ConvergenceError: if *strict* and L-BFGS-B did not report success.
         """
         init_params = np.zeros(N_CLASSES * self.n_features)
+
+        if standardize:
+            scale = column_scales(X)
+            X_fit = X / scale
+        else:
+            scale = None
+            X_fit = X
 
         result = minimize(
             fun=_robust_nll_and_grad,
             x0=init_params,
-            args=(X, y, self.delta, self.l2_lambda),
+            args=(X_fit, y, self.delta, self.l2_lambda),
             method="L-BFGS-B",
             jac=True,
             options={"maxiter": max_iter, "ftol": ftol, "gtol": gtol},
         )
+
+        self.converged = bool(result.success)
+        self.convergence_message = str(result.message)
+        self.n_iter = int(result.nit)
+        self.final_loss = float(result.fun)
+        self.feature_scale = scale
 
         if verbose:
             ok = "ok" if result.success else "check"
@@ -341,7 +436,27 @@ class MultinomialLogisticModel:
                 flush=True,
             )
 
-        self.W = result.x.reshape(N_CLASSES, self.n_features)
+        if not self.converged:
+            detail = (
+                f"L-BFGS-B did not converge after {self.n_iter} iterations "
+                f"(final robust NLL {self.final_loss:.6f}): {self.convergence_message}"
+            )
+            if strict:
+                raise ConvergenceError(
+                    detail + ". Coefficients were NOT stored; refusing to ship a "
+                    "non-converged fit. Loosen ftol/gtol or raise lbfgs_max_iter "
+                    "in ModelConfig if this is expected.",
+                    n_iter=self.n_iter,
+                    final_loss=self.final_loss,
+                )
+            print(f"  [regression] WARNING: {detail}", flush=True)
+
+        W_fit = result.x.reshape(N_CLASSES, self.n_features)
+        # Back to raw-feature space: logits are (X / scale) @ W_fit.T == X @ (W_fit / scale).T,
+        # so dividing each column of W_fit by that column's divisor reproduces the same
+        # logits from unscaled inputs. Everything downstream — predict_proba, the
+        # decomposition, the JSON export, the deployed service — keeps seeing raw ``W``.
+        self.W = W_fit if scale is None else W_fit / scale
         self.is_fitted = True
         return self
 

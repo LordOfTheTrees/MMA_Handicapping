@@ -19,6 +19,7 @@ Typical usage:
 """
 import dataclasses
 import pickle
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,8 +32,7 @@ from .data.loader import (
     load_sherdog_fights, load_ufcstats_fights, sort_fights_chronologically,
 )
 from .data.schema import (
-    FightRecord, FighterProfile, MatchupFeatures,
-    PredictionResult, StyleAxes, WeightClass,
+    FightRecord, FighterProfile, PredictionResult, StyleAxes, WeightClass,
 )
 from .elo.elo import ELOModel
 from .features.construction import apply_cold_start_prior, compute_style_axes
@@ -45,7 +45,6 @@ from .matchup.interactions import (
 from .model.regression import (
     CLASS_LABELS,
     MultinomialLogisticModel,
-    N_CLASSES,
     encode_outcome,
     format_coefficient_importance_report,
 )
@@ -117,6 +116,10 @@ class MMAPredictor:
         self.config = config or Config()
         self.fights: List[FightRecord] = []
         self.profiles: Dict[str, FighterProfile] = {}
+        #: ``(fighter_id, weight_class) -> fights``, built lazily from ``self.fights``.
+        #: ``None`` means "not built yet"; any write to ``self.fights`` must reset it to
+        #: ``None`` via ``_set_fights``. Never pickled — see ``__getstate__``.
+        self._fights_index: Optional[Dict[Tuple[str, WeightClass], List[FightRecord]]] = None
         self.elo_model: Optional[ELOModel] = None
         self.regression: Optional[MultinomialLogisticModel] = None
         self._X_train: Optional[np.ndarray] = None
@@ -178,7 +181,7 @@ class MMAPredictor:
             print("  [data] no fighter_profiles.csv (profiles empty)", flush=True)
 
         print("  [data] sorting fights chronologically ...", flush=True)
-        self.fights = sort_fights_chronologically(all_fights)
+        self._set_fights(all_fights)
         return self
 
     def load_fights_direct(
@@ -187,7 +190,7 @@ class MMAPredictor:
         profiles: Optional[Dict[str, FighterProfile]] = None,
     ) -> "MMAPredictor":
         """Load data directly from Python objects (testing / programmatic use)."""
-        self.fights = sort_fights_chronologically(fights)
+        self._set_fights(fights)
         if profiles:
             self.profiles = profiles
         return self
@@ -273,12 +276,48 @@ class MMAPredictor:
     # Stage 3: Style axis query (per fighter, per date)
     # ------------------------------------------------------------------
 
+    def _set_fights(self, fights: List[FightRecord]) -> None:
+        """
+        Install the fight corpus in chronological order and drop the lookup index.
+
+        Every assignment to ``self.fights`` goes through here. The index is derived
+        state, and a stale one would silently feed wrong history into style axes.
+        """
+        self.fights = sort_fights_chronologically(fights)
+        self._fights_index = None
+
+    def _build_fights_index(self) -> Dict[Tuple[str, WeightClass], List[FightRecord]]:
+        """
+        Group the corpus by ``(fighter_id, weight_class)`` in one pass.
+
+        ``self.fights`` is already chronological and appends are stable, so each bucket
+        comes out in date order — the same order the previous linear scan produced.
+        """
+        index: Dict[Tuple[str, WeightClass], List[FightRecord]] = defaultdict(list)
+        for f in self.fights:
+            index[(f.fighter_a_id, f.weight_class)].append(f)
+            # A malformed row where both corners are the same fighter must not be
+            # double-counted; the scan this replaces matched such a fight only once.
+            if f.fighter_b_id != f.fighter_a_id:
+                index[(f.fighter_b_id, f.weight_class)].append(f)
+        return dict(index)
+
     def _fighter_fights(self, fighter_id: str, wc: WeightClass) -> List[FightRecord]:
-        return [
-            f for f in self.fights
-            if (f.fighter_a_id == fighter_id or f.fighter_b_id == fighter_id)
-            and f.weight_class == wc
-        ]
+        """
+        Every loaded fight for this fighter in this weight class, oldest first.
+
+        Callers must treat the result as read-only: it is the index's own list, not a
+        copy. Returning a copy would reintroduce per-call allocation in the hot path,
+        and no caller mutates it (``compute_style_axes`` only iterates).
+
+        This was a full scan of ``self.fights``, which made building the training matrix
+        quadratic: ``build_xyw_for_fights`` calls it twice per row, so an 8k-fight corpus
+        cost ~128M record comparisons per matrix build — repaid on every one of the
+        ~850 matrix builds a Phase-3 tuning sweep performs.
+        """
+        if self._fights_index is None:
+            self._fights_index = self._build_fights_index()
+        return self._fights_index.get((fighter_id, wc), [])
 
     def _n_prior_bouts_in_wc(
         self, fighter_id: str, wc: WeightClass, fight_date: date
@@ -478,6 +517,9 @@ class MMAPredictor:
             l2_lambda=self.config.model.l2_lambda,
         )
         m = self.config.model
+        # strict=True: these are the coefficients that get exported and served. The monthly
+        # retrain runs unattended, so a non-converged optimisation has to stop the pipeline
+        # rather than print a warning nobody reads.
         self.regression.fit(
             self._X_train,
             self._y_train,
@@ -485,6 +527,8 @@ class MMAPredictor:
             max_iter=m.lbfgs_max_iter,
             ftol=m.lbfgs_ftol,
             gtol=m.lbfgs_gtol,
+            strict=True,
+            standardize=m.standardize_features,
         )
 
         if self.regression.W is not None:
@@ -495,6 +539,13 @@ class MMAPredictor:
                 self._X_train,
             )
             print(rep_text, flush=True)
+            audit["convergence"] = {
+                "converged": self.regression.converged,
+                "n_iter": self.regression.n_iter,
+                "final_loss": self.regression.final_loss,
+                "message": self.regression.convergence_message,
+                "standardized_features": bool(m.standardize_features),
+            }
             self.training_regression_audit = audit
 
         eff_n = effective_sample_size(self._train_weights)
@@ -797,11 +848,16 @@ class MMAPredictor:
             pickle.dump(self, f)
 
     def __getstate__(self) -> dict:
-        return self.__dict__.copy()
+        state = self.__dict__.copy()
+        # Derived from self.fights; rebuilt on demand. Keeping it out of the pickle keeps
+        # model.pkl the size it was and makes a stale index impossible to restore.
+        state.pop("_fights_index", None)
+        return state
 
     def __setstate__(self, state: dict) -> None:
         """Pickle migration: older ``model.pkl`` files lack ``_bootstrap_W`` / ``master_start_year``."""
         self.__dict__.update(state)
+        self._fights_index = None
         if "_bootstrap_W" not in self.__dict__:
             self._bootstrap_W = None
         if "training_regression_audit" not in self.__dict__:

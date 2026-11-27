@@ -63,6 +63,15 @@ def register_train_arguments(p: argparse.ArgumentParser) -> None:
         help="Bootstrap L-BFGS worker processes (default from ModelConfig.bootstrap_max_workers; "
         "unset means min(n_bootstrap, cpu_count-1); 1 forces serial).",
     )
+    p.add_argument(
+        "--standardize-features",
+        action="store_true",
+        help="Fit on column-scaled features, then transform coefficients back to raw space "
+        "(ModelConfig.standardize_features). Makes l2_lambda scale-free and cuts L-BFGS "
+        "iterations sharply. NOTE: it also changes what l2_lambda means, so the shipped "
+        "tuned value no longer applies — measure with "
+        "scripts/dev/benchmark_feature_scaling.py and re-run Phase-3 tuning first.",
+    )
 
 
 def build_train_parser() -> argparse.ArgumentParser:
@@ -123,6 +132,12 @@ def cmd_train(args: argparse.Namespace) -> None:
         )
     if getattr(args, "bootstrap_max_workers", None) is not None:
         config.model.bootstrap_max_workers = int(args.bootstrap_max_workers)
+    if getattr(args, "standardize_features", False):
+        config.model.standardize_features = True
+        print(
+            "  Feature scaling: ON — fitting on column-scaled features (W is still exported "
+            "in raw space). l2_lambda is scale-free in this mode; make sure it was tuned for it."
+        )
 
     predictor = MMAPredictor(config)
 

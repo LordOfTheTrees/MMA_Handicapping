@@ -5,7 +5,7 @@ and the post-hoc market book (``src.eval.market_book``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 # Deferred import so ``import src.eval.tuning_harness`` works without matplotlib in minimal envs
 def _plt():
